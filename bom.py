@@ -120,16 +120,39 @@ with tab2:
                 st.rerun()
                 
 
-# --- PESTAÑA 3: REVISIÓN ---
+# --- PESTAÑA 3: REVISIÓN Y EDICIÓN ---
 with tab3:
     if not st.session_state.bom_final.empty:
-        df_edit = st.data_editor(st.session_state.bom_final, use_container_width=True, hide_index=True, num_rows="dynamic")
-        st.session_state.bom_final = df_edit
-        col_gextia = ['Nombre de producto', 'Cod Barras Variante', 'Cantidad producto final', 'Tipo de lista de material', 'Subcontratista', 'EAN Componente', 'Cantidad', 'Ud']
+        st.subheader("📋 Edición del Escandallo")
+        st.info("💡 Puedes editar las cantidades o seleccionar filas y pulsar 'Suprimir' para borrarlas.")
+        
+        # Ordenamos visualmente para que sea más fácil revisar
+        df_revisar = st.session_state.bom_final.sort_values(by=['Ref Prenda', 'Col Prenda'])
+
+        # EL EDITOR DINÁMICO
+        df_editado = st.data_editor(
+            df_revisar,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",  # ESTO PERMITE BORRAR FILAS
+            column_config={
+                "Cantidad": st.column_config.NumberColumn("Consumo", format="%.3f"),
+                "Nombre de producto": st.column_config.Column(disabled=True),
+                "Ref Prenda": st.column_config.Column(disabled=True),
+                "EAN Componente": st.column_config.Column(disabled=True)
+            }
+        )
+        
+        # Guardamos los cambios (incluyendo los borrados) en la sesión
+        st.session_state.bom_final = df_editado
+
+        # Botón de descarga
+        columnas_g = ['Nombre de producto', 'Cod Barras Variante', 'Cantidad producto final', 'Tipo de lista de material', 'Subcontratista', 'EAN Componente', 'Cantidad', 'Ud']
         output_g = io.BytesIO()
         with pd.ExcelWriter(output_g, engine='openpyxl') as writer:
-            df_edit[col_gextia].to_excel(writer, index=False)
-        st.download_button("📥 DESCARGAR GEXTIA", output_g.getvalue(), "gextia.xlsx", use_container_width=True)
+            df_editado[columnas_g].to_excel(writer, index=False)
+        
+        st.download_button("📥 DESCARGAR EXCEL PARA GEXTIA", output_g.getvalue(), "gextia.xlsx", use_container_width=True, type="primary")
 
 # --- PESTAÑA 4: RESUMEN DE COMPRA ---
 with tab4:
