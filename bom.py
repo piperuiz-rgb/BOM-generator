@@ -75,13 +75,26 @@ with tab2:
         col_a, col_b = st.columns(2)
         
         with col_a:
-            ref_c = st.selectbox("Referencia Componente:", sorted(df_comp['Referencia'].unique()))
+            # Selector de Referencia con Nombre para identificarlo rápido
+            ref_c = st.selectbox("Material / Componente:", sorted(df_comp['Referencia'].unique()),
+                                 format_func=lambda x: f"{x} - {df_comp[df_comp['Referencia']==x]['Nombre'].iloc[0]}")
+            
+            # Filtramos las variantes de ese componente
             filt_c = df_comp[df_comp['Referencia'] == ref_c]
-            ean_c = st.selectbox("EAN Componente:", filt_c['EAN'].unique(),
-                                 format_func=lambda x: f"{x} - {filt_c[filt_c['EAN']==x]['Color'].values[0]}")
+            
+            # Formateamos el EAN para que muestre: EAN - Color - Talla
+            def formato_variante_comp(ean):
+                row = filt_c[filt_c['EAN'] == ean].iloc[0]
+                return f"{ean} | {row['Color']} | Talla: {row.get('Talla', 'Única')}"
+
+            ean_c = st.selectbox("Variante específica (EAN):", filt_c['EAN'].unique(),
+                                 format_func=formato_variante_comp)
+            
             consumo = st.number_input("Consumo:", min_value=0.0, value=1.0, format="%.3f")
-            # Sacar la unidad de medida del catálogo de componentes
+            
+            # Extraemos la unidad de medida
             ud = filt_c[filt_c['EAN'] == ean_c]['Unidad de medida'].values[0]
+
 
         with col_b:
             modo = st.radio("Aplicar a:", ["Todo en mesa", "Colores específicos", "Tallas específicas"])
