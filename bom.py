@@ -58,7 +58,7 @@ st.title("👗 Gextia Master Planner")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏗️ MESA: ORDEN DE FABRICACIÓN", "🧬 ASIGNACIÓN", "📋 REVISIÓN ESCANDALLO", "📊 LISTA DE LA COMPRA"])
 
-# --- TAB 1: MESA: ORDEN DE FABRICACIÓN (GESTIÓN PRO) ---
+# --- TAB 1: MESA DE TRABAJO (CONTROL TOTAL) ---
 with tab1:
     st.subheader("🏗️ Panel de Control de Producción")
     
@@ -71,39 +71,39 @@ with tab1:
         with c_btn:
             if st.button("➕ CARGAR EN MESA", type="primary", use_container_width=True):
                 nuevos = df_prendas[df_prendas['Referencia'].isin(seleccion_refs)].copy()
+                # Aseguramos que la columna sea numérica para que aparezcan los botones +/-
                 nuevos['Cant. a fabricar'] = 0
-                # Evitamos duplicados por EAN
                 st.session_state.mesa = pd.concat([st.session_state.mesa, nuevos]).drop_duplicates(subset=['Ean'])
                 st.rerun()
 
     if not st.session_state.mesa.empty:
         st.divider()
         
-        # 2. ACCIONES MASIVAS SOBRE SELECCIONADOS
-        st.write("### ⚡ Acciones Masivas")
-        st.caption("Selecciona filas en la tabla de abajo para aplicar estos cambios:")
+        # 2. BOTONES DE ACCIÓN MASIVA
+        st.write("### ⚡ Acciones sobre filas seleccionadas")
+        c1, c2, c3, c4 = st.columns(4)
         
-        # El data_editor ahora devuelve las filas seleccionadas si activamos la edición
-        # Pero para hacerlo más intuitivo, usaremos una columna de selección
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        # Mostramos la tabla primero para que el usuario pueda seleccionar
-        st.write("---")
-        
-        # Configuración del editor con selección
-        df_mesa_con_sel = st.data_editor(
+        # Estas variables capturan qué filas están marcadas en el editor
+        # Para que funcione, el editor debe estar definido ANTES de la lógica de los botones 
+        # o usar un callback, pero aquí lo haremos con el estado de sesión.
+
+        # 3. EL EDITOR CON SELECTOR Y BOTONES +/- POR FILA
+        # ACTIVAMOS: num_rows="dynamic" para borrar y column_config para el ajuste fino
+        df_mesa_editada = st.data_editor(
             st.session_state.mesa,
             use_container_width=True,
             hide_index=True,
-            key="mesa_editor",
+            key="mesa_editor", # Clave para detectar selección
             column_config={
+                # Esta columna ahora tiene botones + y - integrados al hacer clic
                 "Cant. a fabricar": st.column_config.NumberColumn(
                     "Unids. a Fabricar",
-                    help="Ajuste manual o mediante botones",
+                    help="Haz clic para usar los botones + / - o escribe la cantidad",
                     min_value=0,
-                    step=1,
-                    format="%d"
+                    max_value=10000,
+                    step=1, # Esto activa el control de unidades en cada fila
+                    format="%d",
+                    required=True,
                 ),
                 "Referencia": st.column_config.Column(disabled=True),
                 "Nombre": st.column_config.Column(disabled=True),
@@ -113,45 +113,39 @@ with tab1:
             }
         )
         
-        # Capturamos el estado actual de la tabla editada
-        st.session_state.mesa = df_mesa_con_sel
+        # Sincronizamos los cambios manuales/ajuste fino
+        st.session_state.mesa = df_mesa_editada
 
-        # 3. LÓGICA DE BOTONES (Afectan a lo que el usuario haya marcado o a todo)
-        # Nota: En Streamlit, el data_editor permite seleccionar filas. 
-        # Vamos a usar botones que actúan sobre la selección activa.
+        # 4. LÓGICA DE LOS BOTONES SUPERIORES (Afectan a las filas seleccionadas con el checkbox de la izquierda)
+        # Accedemos a las filas marcadas a través del estado del widget
+        indices_seleccionados = st.session_state.get("mesa_editor", {}).get("selection", {}).get("rows", [])
+
+        with c1:
+            if st.button("➕ Añadir 1 a Selección"):
+                if indices_seleccionados:
+                    st.session_state.mesa.iloc[indices_seleccionados, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] += 1
+                    st.rerun()
+                else: st.info("Selecciona filas a la izquierda")
         
-        with col1:
-            if st.button("➕ Añadir 1 (Sel.)"):
-                # Obtenemos índices de filas seleccionadas en el editor
-                sel_rows = st.session_state.get("mesa_editor", {}).get("selection", {}).get("rows", [])
-                if sel_rows:
-                    st.session_state.mesa.iloc[sel_rows, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] += 1
+        with c2:
+            if st.button("➕ Añadir 5 a Selección"):
+                if indices_seleccionados:
+                    st.session_state.mesa.iloc[indices_seleccionados, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] += 5
                     st.rerun()
-                else:
-                    st.warning("Selecciona filas primero")
+                else: st.info("Selecciona filas a la izquierda")
 
-        with col2:
-            if st.button("➕ Añadir 5 (Sel.)"):
-                sel_rows = st.session_state.get("mesa_editor", {}).get("selection", {}).get("rows", [])
-                if sel_rows:
-                    st.session_state.mesa.iloc[sel_rows, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] += 5
-                    st.rerun()
-                else:
-                    st.warning("Selecciona filas primero")
-
-        with col3:
+        with c3:
             if st.button("🔄 Resetear Selección"):
-                sel_rows = st.session_state.get("mesa_editor", {}).get("selection", {}).get("rows", [])
-                if sel_rows:
-                    st.session_state.mesa.iloc[sel_rows, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] = 0
+                if indices_seleccionados:
+                    st.session_state.mesa.iloc[indices_seleccionados, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] = 0
+                    st.rerun()
+        
+        with c4:
+            if st.button("🗑️ Quitar de Mesa"):
+                if indices_seleccionados:
+                    st.session_state.mesa = st.session_state.mesa.drop(st.session_state.mesa.index[indices_seleccionados])
                     st.rerun()
 
-        with col4:
-            if st.button("🗑️ Eliminar de Mesa"):
-                sel_rows = st.session_state.get("mesa_editor", {}).get("selection", {}).get("rows", [])
-                if sel_rows:
-                    st.session_state.mesa = st.session_state.mesa.drop(st.session_state.mesa.index[sel_rows])
-                    st.rerun()
 
 # --- TAB 2: ASIGNACIÓN DE MATERIALES ---
 with tab2:
