@@ -2,12 +2,28 @@ import streamlit as st
 import pandas as pd
 import io
 import os
+import pickle
 from datetime import datetime
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Gextia Factory Pro", layout="wide", page_icon="✂️")
 
-# --- 2. MOTOR DE DATOS ---
+# --- 2. FUNCIONES DE PERSISTENCIA ---
+def guardar_progreso():
+    datos = {
+        'mesa': st.session_state.mesa,
+        'bom': st.session_state.bom,
+        'ultima_tanda': st.session_state.ultima_tanda
+    }
+    return pickle.dumps(datos)
+
+def cargar_progreso(archivo_bytes):
+    datos = pickle.loads(archivo_bytes)
+    st.session_state.mesa = datos['mesa']
+    st.session_state.bom = datos['bom']
+    st.session_state.ultima_tanda = datos.get('ultima_tanda')
+
+# --- 3. MOTOR DE DATOS ---
 @st.cache_data
 def load_data(file):
     if os.path.exists(file):
@@ -25,7 +41,38 @@ if 'mesa' not in st.session_state: st.session_state.mesa = pd.DataFrame()
 if 'bom' not in st.session_state: st.session_state.bom = pd.DataFrame()
 if 'ultima_tanda' not in st.session_state: st.session_state.ultima_tanda = None
 
-# --- 3. TABS ---
+# --- 4. PANEL DE CONTROL LATERAL (GUARDADO/RECUPERACIÓN) ---
+with st.sidebar:
+    st.header("💾 Gestión de Sesión")
+    
+    # Exportar Trabajo
+    if not st.session_state.mesa.empty or not st.session_state.bom.empty:
+        st.download_button(
+            label="📥 DESCARGAR COPIA DE SEGURIDAD (.pkt)",
+            data=guardar_progreso(),
+            file_name=f"Backup_Gextia_{datetime.now().strftime('%d%m_%H%M')}.pkt",
+            mime="application/octet-stream",
+            use_container_width=True
+        )
+    
+    st.divider()
+    
+    # Importar Trabajo
+    archivo_subido = st.file_uploader("📂 SUBIR ARCHIVO DE AVANCE (.pkt)", type=["pkt"])
+    if archivo_subido:
+        if st.button("🔄 RESTAURAR DATOS", type="primary", use_container_width=True):
+            cargar_progreso(archivo_subido.read())
+            st.success("¡Datos recuperados!")
+            st.rerun()
+
+    st.divider()
+    if st.button("🗑️ LIMPIAR TODO EL TRABAJO", use_container_width=True):
+        st.session_state.mesa = pd.DataFrame()
+        st.session_state.bom = pd.DataFrame()
+        st.session_state.ultima_tanda = None
+        st.rerun()
+
+# --- 5. TABS ---
 t1, t2, t3, t4 = st.tabs(["🏗️ MESA DE CORTE", "🧬 ASIGNACIÓN", "📋 IMPORT GEXTIA", "📊 LISTA DE COMPRA"])
 
 # --- TAB 1: MESA DE CORTE ---
@@ -133,14 +180,12 @@ with t3:
         
         df_audit = d_rev2 if not rev_tal else d_rev2[d_rev2['Tal Prenda'].isin(rev_tal)]
         
-        # IMPORTANTE: Mantenemos el índice original para poder mapear los cambios
         st.write("Puedes editar la columna **Cantidad** directamente:")
         df_edit = st.data_editor(
             df_audit,
             column_order=['Ref Prenda', 'Col Prenda', 'Tal Prenda', 'Nom Comp', 'Col Comp', 'Cantidad', 'Ud'],
             column_config={
                 "Cantidad": st.column_config.NumberColumn("Consumo Unit.", format="%.3f"),
-                # Bloqueamos el resto para evitar errores de integridad
                 "Ref Prenda": st.column_config.Column(disabled=True),
                 "Col Prenda": st.column_config.Column(disabled=True),
                 "Tal Prenda": st.column_config.Column(disabled=True),
@@ -149,16 +194,14 @@ with t3:
                 "Ud": st.column_config.Column(disabled=True),
             },
             use_container_width=True, 
-            hide_index=False # Cambiado a False internamente para asegurar el mapeo
+            hide_index=False
         )
         
         if st.button("💾 GUARDAR CAMBIOS"):
-            # Lógica de guardado robusta: actualizamos fila por fila según el índice original
             for idx in df_edit.index:
                 nueva_cant = df_edit.loc[idx, 'Cantidad']
                 st.session_state.bom.at[idx, 'Cantidad'] = nueva_cant
-            
-            st.success("✅ Cantidades actualizadas correctamente sin errores de índice.")
+            st.success("✅ Cantidades actualizadas correctamente.")
             st.rerun()
 
         st.divider()
@@ -186,4 +229,4 @@ with t4:
         out_c = io.BytesIO()
         with pd.ExcelWriter(out_c, engine='openpyxl') as w: res.to_excel(w, index=False)
         st.download_button("📥 DESCARGAR COMPRAS", out_c.getvalue(), "Lista_Compra.xlsx")
-        
+    
