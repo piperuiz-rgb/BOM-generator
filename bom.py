@@ -4,165 +4,172 @@ import io
 import os
 from datetime import datetime
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Gextia BOM Builder", layout="wide")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Gextia BOM Ultra-Fast", layout="wide")
 
-# --- CARGA AUTOMÁTICA DESDE EXCEL ---
-@st.cache_data(show_spinner="Leyendo catálogos Excel...")
-def load_excel_data(file_path):
-    if os.path.exists(file_path):
+# --- CARGA DE DATOS CON CACHÉ ---
+@st.cache_data
+def load_excel(file):
+    if os.path.exists(file):
         try:
-            # Leemos la primera hoja del Excel
-            df = pd.read_excel(file_path, engine='openpyxl')
-            # Limpieza: quitar espacios en nombres de columnas y convertir EAN a texto limpio
+            df = pd.read_excel(file, engine='openpyxl')
             df.columns = [str(c).strip() for c in df.columns]
-            if 'EAN' in df.columns:
-                df['EAN'] = df['EAN'].astype(str).str.replace('.0', '', regex=False).str.strip()
+            # Limpieza de EANs y relleno de vacíos
+            for col in ['EAN', 'Referencia', 'Nombre', 'Color', 'Talla']:
+                if col in df.columns:
+                    df[col] = df[col].astype(str).str.replace('.0', '', regex=False).strip()
+                    df[col] = df[col].replace('nan', '')
             return df
         except Exception as e:
-            st.error(f"Error al leer {file_path}: {e}")
-            return None
+            st.error(f"Error cargando {file}: {e}")
     return None
 
-# Carga inicial de archivos que están en el mismo repositorio
-df_prendas = load_excel_data('prendas.xlsx')
-df_comp = load_excel_data('componentes.xlsx')
+df_prendas = load_excel('prendas.xlsx')
+df_comp = load_excel('componentes.xlsx')
 
-# Inicializar estados de sesión para el escandallo
+# --- ESTADO DE SESIÓN ---
 if 'mesa_trabajo' not in st.session_state: st.session_state.mesa_trabajo = pd.DataFrame()
 if 'bom_final' not in st.session_state: st.session_state.bom_final = pd.DataFrame()
 
-# --- INTERFAZ ---
-st.title("🛠️ Gextia BOM Builder (Carga Automática)")
+st.title("👗 Gextia BOM: Gestión Visual de Colecciones")
 
-if df_prendas is None or df_comp is None:
-    st.warning("⚠️ No se encontraron los archivos 'prendas.xlsx' o 'componentes.xlsx' en el repositorio. Por favor, súbelos para activar la carga automática.")
-    # Opción de subida manual por si fallan los de GitHub
-    st.subheader("O subir manualmente:")
-    manual_p = st.file_uploader("Subir Prendas", type=['xlsx'])
-    manual_c = st.file_uploader("Subir Componentes", type=['xlsx'])
-    if manual_p: df_prendas = pd.read_excel(manual_p)
-    if manual_c: df_comp = pd.read_excel(manual_c)
+# --- FUNCIONES DE FORMATEO ---
+def fmt_prenda(row):
+    return f"{row['Referencia']} - {row['Nombre']} ({row['Color']} / {row['Talla']})"
 
-tab1, tab2, tab3 = st.tabs(["🏗️ MESA DE TRABAJO", "🧬 ASIGNACIÓN", "📥 EXPORTAR"])
+def fmt_comp(row):
+    return f"{row['Referencia']} - {row['Nombre']} | {row['Color']} | T: {row.get('Talla', 'U')}"
 
-# PESTAÑA 1: MESA DE TRABAJO
+# --- TABS ---
+tab1, tab2, tab3 = st.tabs(["🏗️ MESA DE TRABAJO", "🧬 ASIGNACIÓN POR COMPONENTE", "📋 REVISIÓN Y EXPORTACIÓN"])
+
+# --- PESTAÑA 1: MESA DE TRABAJO ---
 with tab1:
     if df_prendas is not None:
-        st.subheader("Selecciona Modelos")
-        refs = sorted(df_prendas['Referencia'].unique())
-        seleccion = st.multiselect("Buscar Referencias:", refs)
+        st.subheader("Seleccionar Productos Terminados")
+        # Creamos una columna de búsqueda combinada
+        df_prendas['Display'] = df_prendas.apply(fmt_prenda, axis=1)
         
-        c1, c2 = st.columns(2)
-        if c1.button("Añadir a Mesa", type="primary"):
-            nuevos = df_prendas[df_prendas['Referencia'].isin(seleccion)]
+        opciones_refs = sorted(df_prendas['Referencia'].unique())
+        refs_sel = st.multiselect("Filtrar por Referencia Base:", opciones_refs)
+        
+        if st.button("Añadir a Mesa de Trabajo", type="primary"):
+            nuevos = df_prendas[df_prendas['Referencia'].isin(refs_sel)]
             st.session_state.mesa_trabajo = pd.concat([st.session_state.mesa_trabajo, nuevos]).drop_duplicates()
-            st.rerun()
-        
-        if c2.button("Limpiar Mesa"):
-            st.session_state.mesa_trabajo = pd.DataFrame()
             st.rerun()
 
         if not st.session_state.mesa_trabajo.empty:
-            st.dataframe(st.session_state.mesa_trabajo, use_container_width=True, hide_index=True)
+            st.divider()
+            st.write(f"📍 Prendas en mesa: {len(st.session_state.mesa_trabajo)}")
+            st.dataframe(st.session_state.mesa_trabajo[['Referencia', 'Nombre', 'Color', 'Talla', 'EAN']], 
+                         use_container_width=True, hide_index=True)
+            if st.button("Vaciar Mesa"):
+                st.session_state.mesa_trabajo = pd.DataFrame()
+                st.rerun()
 
-# PESTAÑA 2: ASIGNACIÓN
+# --- PESTAÑA 2: ASIGNACIÓN ---
 with tab2:
     if st.session_state.mesa_trabajo.empty or df_comp is None:
-        st.info("Configura la mesa de trabajo y asegúrate de tener el catálogo de componentes.")
+        st.info("Configura la mesa de trabajo primero.")
     else:
-        st.subheader("Configurar Material")
-        col_a, col_b = st.columns(2)
+        st.subheader("1. Selección del Componente")
+        # Selector de Componente con Nombre Completo
+        df_comp['Display'] = df_comp.apply(fmt_comp, axis=1)
+        comp_sel_display = st.selectbox("Buscar Material:", df_comp['Display'].unique())
+        row_comp = df_comp[df_comp['Display'] == comp_sel_display].iloc[0]
         
-        with col_a:
-            # Selector de Referencia con Nombre para identificarlo rápido
-            ref_c = st.selectbox("Material / Componente:", sorted(df_comp['Referencia'].unique()),
-                                 format_func=lambda x: f"{x} - {df_comp[df_comp['Referencia']==x]['Nombre'].iloc[0]}")
-            
-            # Filtramos las variantes de ese componente
-            filt_c = df_comp[df_comp['Referencia'] == ref_c]
-            
-            # Formateamos el EAN para que muestre: EAN - Color - Talla
-            def formato_variante_comp(ean):
-                row = filt_c[filt_c['EAN'] == ean].iloc[0]
-                return f"{ean} | {row['Color']} | Talla: {row.get('Talla', 'Única')}"
-
-            ean_c = st.selectbox("Variante específica (EAN):", filt_c['EAN'].unique(),
-                                 format_func=formato_variante_comp)
-            
-            consumo = st.number_input("Consumo:", min_value=0.0, value=1.0, format="%.3f")
-            
-            # Extraemos la unidad de medida
-            ud = filt_c[filt_c['EAN'] == ean_c]['Unidad de medida'].values[0]
-
-
-        with col_b:
-            modo = st.radio("Aplicar a:", ["Todo en mesa", "Colores específicos", "Tallas específicas"])
+        st.divider()
+        st.subheader("2. Destinos en Producto Terminado")
+        
+        # Selección múltiple de referencias en la mesa
+        refs_en_mesa = sorted(st.session_state.mesa_trabajo['Referencia'].unique())
+        destinos_refs = st.multiselect("Aplicar a estas prendas:", refs_en_mesa, default=refs_en_mesa)
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            modo = st.radio("Filtrar destinos por:", ["Todas las variantes", "Colores específicos", "Tallas específicas"])
+        with c2:
+            filtros = []
             if modo == "Colores específicos":
-                filtros = st.multiselect("Colores:", sorted(st.session_state.mesa_trabajo['Color'].unique()))
+                filtros = st.multiselect("Selecciona Colores:", sorted(st.session_state.mesa_trabajo['Color'].unique()))
             elif modo == "Tallas específicas":
-                filtros = st.multiselect("Tallas:", sorted(st.session_state.mesa_trabajo['Talla'].unique()))
+                filtros = st.multiselect("Selecciona Tallas:", sorted(st.session_state.mesa_trabajo['Talla'].unique()))
+        with c3:
+            consumo = st.number_input("Consumo por prenda:", min_value=0.0, value=1.0, format="%.3f")
+            ud = row_comp['Unidad de medida']
+            st.caption(f"Unidad: {ud}")
 
-        if st.button("🔥 Inyectar Material", type="primary"):
-            target = st.session_state.mesa_trabajo.copy()
+        if st.button("🚀 Inyectar Componente a Selección", type="primary"):
+            target = st.session_state.mesa_trabajo[st.session_state.mesa_trabajo['Referencia'].isin(destinos_refs)].copy()
             if modo == "Colores específicos" and filtros:
                 target = target[target['Color'].isin(filtros)]
             elif modo == "Tallas específicas" and filtros:
                 target = target[target['Talla'].isin(filtros)]
             
-            nuevas_lineas = pd.DataFrame({
+            # Construcción con metadatos para que en la pestaña 3 se vea todo
+            nuevas = pd.DataFrame({
                 'Nombre de producto': target['Nombre'],
+                'Ref Prenda': target['Referencia'],
+                'Col Prenda': target['Color'],
+                'Tal Prenda': target['Talla'],
                 'Cod Barras Variante': target['EAN'],
                 'Cantidad producto final': 1,
                 'Tipo de lista de material': 'Fabricación',
                 'Subcontratista': '',
-                'EAN Componente': ean_c,
+                'Ref Comp': row_comp['Referencia'],
+                'Nom Comp': row_comp['Nombre'],
+                'Col Comp': row_comp['Color'],
+                'Tal Comp': row_comp.get('Talla', 'U'),
+                'EAN Componente': row_comp['EAN'],
                 'Cantidad': consumo,
                 'Ud': ud
             })
-            st.session_state.bom_final = pd.concat([st.session_state.bom_final, nuevas_lineas])
-            st.success(f"Añadidas {len(nuevas_lineas)} líneas.")
+            st.session_state.bom_final = pd.concat([st.session_state.bom_final, nuevas]).drop_duplicates()
+            st.success(f"Asignadas {len(nuevas)} líneas correctamente.")
 
-# PESTAÑA 3: EXPORTACIÓN GEXTIA
+# --- PESTAÑA 3: REVISIÓN ---
 with tab3:
     if not st.session_state.bom_final.empty:
-        st.subheader("3. Revisión Final del Escandallo")
-        st.write("Los componentes aparecen agrupados por prenda y variante para facilitar la revisión.")
-
-        # --- LÓGICA DE ORDENACIÓN ---
-        # Ordenamos por Nombre de Producto (Prenda) y luego por EAN de la Variante (Talla/Color)
-        df_ordenado = st.session_state.bom_final.sort_values(
-            by=['Nombre de producto', 'Cod Barras Variante'], 
-            ascending=[True, True]
+        st.subheader("Edición y Validación Final")
+        
+        # Ordenamos para que sea legible
+        df_view = st.session_state.bom_final.sort_values(by=['Ref Prenda', 'Col Prenda', 'Tal Prenda'])
+        
+        # TABLA EDITABLE CON TODA LA INFO
+        df_editado = st.data_editor(
+            df_view,
+            column_config={
+                "Cantidad": st.column_config.NumberColumn("Consumo", format="%.3f", help="Puedes editar el consumo aquí"),
+                "Nombre de producto": st.column_config.Column("Prenda", disabled=True),
+                "Ref Prenda": st.column_config.Column("Ref", disabled=True),
+                "Col Prenda": st.column_config.Column("Color P.", disabled=True),
+                "Tal Prenda": st.column_config.Column("Talla P.", disabled=True),
+                "Nom Comp": st.column_config.Column("Material", disabled=True),
+                "Col Comp": st.column_config.Column("Color M.", disabled=True),
+                "Tal Comp": st.column_config.Column("Talla M.", disabled=True),
+            },
+            hide_index=True,
+            use_container_width=True,
+            num_rows="dynamic"
         )
+        
+        st.session_state.bom_final = df_editado
 
-        # Mostrar tabla ordenada
-        st.dataframe(df_ordenado, use_container_width=True, hide_index=True)
+        # Limpieza para exportar solo lo que Odoo/Gextia necesita
+        columnas_gextia = ['Nombre de producto', 'Cod Barras Variante', 'Cantidad producto final', 
+                           'Tipo de lista de material', 'Subcontratista', 'EAN Componente', 'Cantidad', 'Ud']
+        df_export = df_editado[columnas_gextia]
 
         st.divider()
-
-        # --- GENERACIÓN DE ARCHIVO EXCEL ---
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Exportamos el DataFrame ya ordenado
-            df_ordenado.to_excel(writer, index=False)
-        
-        # Botón de descarga con nombre dinámico (Día_Hora)
-        st.download_button(
-            label="📥 DESCARGAR EXCEL PARA GEXTIA",
-            data=output.getvalue(),
-            file_name=f"IMPORT_GEXTIA_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-
-        # Espacio extra y botón de borrado
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        if st.button("⚠️ BORRAR TODO EL PROGRESO", help="Cuidado: esto limpiará toda la lista actual"):
-            st.session_state.bom_final = pd.DataFrame()
-            st.rerun()
-            
-    else:
-        st.info("Aún no has inyectado ningún material. Ve a la pestaña 'ASIGNACIÓN' para empezar.")
-
+        c_ex1, c_ex2 = st.columns(2)
+        with c_ex1:
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_export.to_excel(writer, index=False)
+            st.download_button("📥 DESCARGAR PARA GEXTIA", output.getvalue(), 
+                               "importador_gextia.xlsx", use_container_width=True)
+        with c_ex2:
+            if st.button("⚠️ BORRAR TODO"):
+                st.session_state.bom_final = pd.DataFrame()
+                st.rerun()
             
