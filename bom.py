@@ -33,54 +33,63 @@ df_comp = load_excel('componentes.xlsx')
 if 'mesa_trabajo' not in st.session_state: st.session_state.mesa_trabajo = pd.DataFrame()
 if 'bom_final' not in st.session_state: st.session_state.bom_final = pd.DataFrame()
 
-# --- BARRA LATERAL: RESPALDO EN EXCEL (MÁS SEGURO) ---
+# --- BARRA LATERAL: RESPALDO INTEGRAL (MESA + BOM) ---
 with st.sidebar:
-    st.header("💾 Copia de Seguridad")
+    st.header("💾 Copia de Seguridad Total")
     
-    # 1. BOTÓN PARA GUARDAR
-    st.subheader("Guardar Trabajo")
-    if not st.session_state.bom_final.empty:
+    # 1. BOTÓN PARA GUARDAR TODO
+    st.subheader("Guardar Proyecto")
+    if not st.session_state.bom_final.empty or not st.session_state.mesa_trabajo.empty:
         output_backup = io.BytesIO()
         with pd.ExcelWriter(output_backup, engine='openpyxl') as writer:
-            st.session_state.bom_final.to_excel(writer, index=False)
+            # Guardamos la mesa de trabajo en una hoja
+            st.session_state.mesa_trabajo.to_excel(writer, sheet_name='MesaTrabajo', index=False)
+            # Guardamos el escandallo en otra hoja
+            st.session_state.bom_final.to_excel(writer, sheet_name='Escandallo', index=False)
         
         st.download_button(
-            label="📥 Descargar Respaldo (.xlsx)",
+            label="📥 Descargar Proyecto Completo (.xlsx)",
             data=output_backup.getvalue(),
-            file_name=f"respaldo_BOM_{datetime.now().strftime('%H%M')}.xlsx",
+            file_name=f"proyecto_BOM_{datetime.now().strftime('%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-        st.info("💡 Guarda este archivo para no perder el progreso.")
+        st.info("💡 Esto guarda tanto la Mesa como el Escandallo.")
     else:
-        st.warning("⚠️ Inyecta materiales para poder guardar.")
+        st.warning("⚠️ Nada que guardar aún.")
     
     st.divider()
     
-    # 2. BOTÓN PARA RECUPERAR
-    st.subheader("Recuperar Trabajo")
-    archivo_recuperacion = st.file_uploader("Sube tu respaldo (.xlsx)", type=['xlsx'])
+    # 2. BOTÓN PARA RECUPERAR TODO
+    st.subheader("Recuperar Proyecto")
+    archivo_recuperacion = st.file_uploader("Sube tu proyecto completo (.xlsx)", type=['xlsx'])
     
     if archivo_recuperacion:
-        if st.button("🔄 Restaurar Sesión Ahora", use_container_width=True):
+        if st.button("🔄 Restaurar Todo el Proyecto", use_container_width=True):
             try:
-                # Cargamos el Excel de respaldo
-                df_recuperado = pd.read_excel(archivo_recuperacion, engine='openpyxl')
+                # Cargamos ambas hojas del Excel
+                with pd.ExcelFile(archivo_recuperacion) as xls:
+                    if 'MesaTrabajo' in xls.sheet_names:
+                        df_mesa = pd.read_excel(xls, 'MesaTrabajo')
+                        # Limpieza rápida de strings
+                        for col in df_mesa.columns:
+                            df_mesa[col] = df_mesa[col].astype(str).replace(['.0', 'nan'], ['', ''], regex=True).strip()
+                        st.session_state.mesa_trabajo = df_mesa
+                    
+                    if 'Escandallo' in xls.sheet_names:
+                        df_esc = pd.read_excel(xls, 'Escandallo')
+                        # Limpieza y conversión de cantidad
+                        for col in df_esc.columns:
+                            df_esc[col] = df_esc[col].astype(str).replace(['.0', 'nan'], ['', ''], regex=True).strip()
+                        if 'Cantidad' in df_esc.columns:
+                            df_esc['Cantidad'] = pd.to_numeric(df_esc['Cantidad'], errors='coerce')
+                        st.session_state.bom_final = df_esc
                 
-                # Aseguramos limpieza de datos como en la carga inicial
-                for col in df_recuperado.columns:
-                    df_recuperado[col] = df_recuperado[col].astype(str).apply(lambda x: x.replace('.0', '').strip())
-                    df_recuperado[col] = df_recuperado[col].replace('nan', '')
-                
-                # Convertir la columna Cantidad a número para que el editor funcione
-                if 'Cantidad' in df_recuperado.columns:
-                    df_recuperado['Cantidad'] = pd.to_numeric(df_recuperado['Cantidad'], errors='coerce')
-                
-                st.session_state.bom_final = df_recuperado
-                st.success("✅ ¡Trabajo restaurado con éxito!")
+                st.success("✅ ¡Mesa y Escandallo restaurados!")
                 st.rerun()
             except Exception as e:
-                st.error(f"No se pudo importar: {e}")
+                st.error(f"Error en la restauración integral: {e}")
+
 
 
 # --- CUERPO PRINCIPAL ---
