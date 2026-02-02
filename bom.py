@@ -68,40 +68,83 @@ with t1:
             if nv != row['Cant. a fabricar']: st.session_state.mesa.at[idx, 'Cant. a fabricar'] = nv; st.rerun()
             st.divider()
 
-# --- TAB 2: ASIGNACIÓN ---
+# --- TAB 2: ASIGNACIÓN (MULTIREFERENCIA Y FILTROS COMBINADOS) ---
 with t2:
     if not st.session_state.mesa.empty:
-        st.subheader("🧬 Asignación de Materiales")
+        st.subheader("🧬 Asignación de Materiales Masiva")
+        
+        # 1. SELECCIÓN DEL COMPONENTE
         df_comp['Display'] = df_comp.apply(lambda r: f"{r.get('Referencia','')} - {r.get('Nombre','')} | {r.get('Color','')}", axis=1)
+        
         c_m, c_c = st.columns([3, 1])
-        with c_m: comp_sel = st.selectbox("Material:", df_comp['Display'].unique()); row_c = df_comp[df_comp['Display'] == comp_sel].iloc[0]
-        with c_c: cons_inj = st.number_input("Consumo:", min_value=0.0, value=1.0, format="%.3f")
+        with c_m: 
+            comp_sel = st.selectbox("Material a añadir:", df_comp['Display'].unique())
+            row_c = df_comp[df_comp['Display'] == comp_sel].iloc[0]
+        with c_c: 
+            cons_inj = st.number_input("Consumo Unitario:", min_value=0.0, value=1.0, format="%.3f", step=0.001)
         
-        st.write("### 🎯 Destinos")
+        st.divider()
+        
+        # 2. DESTINOS CON MULTISELECCIÓN
+        st.write("### 🎯 Definir Destinos")
         f1, f2, f3 = st.columns(3)
-        with f1: r_t = st.selectbox("Ref:", ["Todas"] + sorted(st.session_state.mesa['Referencia'].unique().tolist()))
-        with f2:
-            d_t = st.session_state.mesa if r_t == "Todas" else st.session_state.mesa[st.session_state.mesa['Referencia'] == r_t]
-            col_t = st.selectbox("Color:", ["Todos"] + sorted(d_t['Color'].unique().tolist()))
-        with f3:
-            d_t2 = d_t if col_t == "Todos" else d_t[d_t['Color'] == col_t]
-            tal_t = st.selectbox("Talla:", ["Todas"] + sorted(d_t2['Talla'].unique().tolist()))
-            
-        final_df = d_t2 if tal_t == "Todas" else d_t2[d_t2['Talla'] == tal_t]
-        st.info(f"Se inyectará en {len(final_df)} variantes.")
         
-        if st.button("🚀 EJECUTAR INYECCIÓN Y CORTE", type="primary"):
-            nuevas = pd.DataFrame({
-                'Nombre de producto': final_df['Nombre'], 'Cod Barras Variante': final_df['Ean'],
-                'Ref Prenda': final_df['Referencia'], 'Col Prenda': final_df['Color'], 'Tal Prenda': final_df['Talla'],
-                'Cantidad producto final': final_df['Cant. a fabricar'], 'Ref Comp': row_c.get('Referencia',''),
-                'Nom Comp': row_c.get('Nombre',''), 'Col Comp': row_c.get('Color',''), 'EAN Componente': row_c.get('Ean',''),
-                'Cantidad': cons_inj, 'Ud': row_c.get('Unidad de medida','Un'), 'Tipo de lista de material': 'Fabricación', 'Subcontratista': ''
-            })
-            st.session_state.bom = pd.concat([st.session_state.bom, nuevas]).drop_duplicates()
-            st.success("✂️ ¡Material cortado y asignado!")
-            st.balloons()
-    else: st.warning("Mesa vacía.")
+        with f1:
+            # Ahora es un multiselect para permitir varias referencias a la vez
+            opciones_refs = sorted(st.session_state.mesa['Referencia'].unique().tolist())
+            refs_targets = st.multiselect("Filtrar por Referencia(s):", opciones_refs, help="Si dejas vacío, se aplica a TODAS")
+            
+        with f2:
+            # Filtramos colores basados en las referencias seleccionadas
+            if refs_targets:
+                df_temp = st.session_state.mesa[st.session_state.mesa['Referencia'].isin(refs_targets)]
+            else:
+                df_temp = st.session_state.mesa
+                
+            opciones_colores = sorted(df_temp['Color'].unique().tolist())
+            cols_targets = st.multiselect("Filtrar por Color(es):", opciones_colores, help="Si dejas vacío, se aplica a TODOS los colores")
+            
+        with f3:
+            # Filtramos tallas basados en referencias y colores seleccionados
+            df_temp2 = df_temp
+            if cols_targets:
+                df_temp2 = df_temp2[df_temp2['Color'].isin(cols_targets)]
+            
+            opciones_tallas = sorted(df_temp2['Talla'].unique().tolist())
+            tals_targets = st.multiselect("Filtrar por Talla(s):", opciones_tallas, help="Si dejas vacío, se aplica a TODAS las tallas")
+
+        # 3. FILTRADO FINAL Y VISTA PREVIA
+        final_df = df_temp2
+        if tals_targets:
+            final_df = final_df[final_df['Talla'].isin(tals_targets)]
+            
+        st.info(f"✨ El material se inyectará en **{len(final_df)}** variantes seleccionadas.")
+        
+        # 4. BOTÓN DE EJECUCIÓN CON TIJERAS
+        if st.button("✂️ EJECUTAR INYECCIÓN Y CORTE", type="primary", use_container_width=True):
+            if final_df.empty:
+                st.error("No hay variantes que coincidan con la combinación de filtros.")
+            else:
+                nuevas = pd.DataFrame({
+                    'Nombre de producto': final_df['Nombre'],
+                    'Cod Barras Variante': final_df['Ean'],
+                    'Ref Prenda': final_df['Referencia'],
+                    'Col Prenda': final_df['Color'],
+                    'Tal Prenda': final_df['Talla'],
+                    'Cantidad producto final': final_df['Cant. a fabricar'],
+                    'Ref Comp': row_c.get('Referencia',''),
+                    'Nom Comp': row_c.get('Nombre',''),
+                    'Col Comp': row_c.get('Color',''),
+                    'EAN Componente': row_c.get('Ean',''),
+                    'Cantidad': cons_inj,
+                    'Ud': row_c.get('Unidad de medida','Un'),
+                    'Tipo de lista de material': 'Fabricación',
+                    'Subcontratista': ''
+                })
+                
+                st.session_state.bom = pd.concat([st.session_state.bom, nuevas]).drop_duplicates()
+                st.success("✂️ ¡Corte y asignación completados con éxito!")
+                st.balloons()
 
 # --- TABS 3 Y 4 (Igual que antes pero integradas) ---
 with t3:
