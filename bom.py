@@ -108,6 +108,17 @@ with tab2:
             })
             st.session_state.bom_final = pd.concat([st.session_state.bom_final, nuevas]).drop_duplicates()
             st.success("¡Inyectado!")
+            
+                    # Botón para deshacer el último paso
+        if not st.session_state.bom_final.empty:
+            if st.button("↩️ Deshacer última inyección", use_container_width=True):
+                # Eliminamos las últimas líneas añadidas (basándonos en que no se hayan guardado/refrescado aún)
+                # O mejor, eliminamos por el último componente inyectado:
+                ultimo_ean = st.session_state.bom_final['EAN Componente'].iloc[-1]
+                st.session_state.bom_final = st.session_state.bom_final[~(st.session_state.bom_final['EAN Componente'] == ultimo_ean)]
+                st.warning(f"Se ha eliminado la última inyección del componente {ultimo_ean}")
+                st.rerun()
+                
 
 # --- PESTAÑA 3: REVISIÓN ---
 with tab3:
