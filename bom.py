@@ -58,36 +58,72 @@ st.title("👗 Gextia Master Planner")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏗️ MESA: ORDEN DE FABRICACIÓN", "🧬 ASIGNACIÓN", "📋 REVISIÓN ESCANDALLO", "📊 LISTA DE LA COMPRA"])
 
-# --- TAB 1: MESA Y CANTIDADES DE PRENDAS ---
+# --- TAB 1: MESA: ORDEN DE FABRICACIÓN (CON AJUSTES RÁPIDOS) ---
 with tab1:
-    st.subheader("1. Selección de Prendas y Cantidades")
+    st.subheader("🏗️ Gestión de Orden de Fabricación")
+    
     if df_prendas is not None:
         opciones = sorted(df_prendas['Referencia'].unique())
-        seleccion = st.multiselect("Añadir Referencias a fabricar:", opciones)
-        if st.button("➕ CARGAR EN MESA", type="primary"):
-            nuevos = df_prendas[df_prendas['Referencia'].isin(seleccion)].copy()
-            # Inicializamos la cantidad a fabricar en 1 si no existe
-            nuevos['Cant. a fabricar'] = 1
-            st.session_state.mesa = pd.concat([st.session_state.mesa, nuevos]).drop_duplicates()
-            st.rerun()
+        col_sel, col_btn = st.columns([3, 1])
+        with col_sel:
+            seleccion = st.multiselect("Añadir Referencias:", opciones)
+        with col_btn:
+            if st.button("➕ CARGAR", type="primary"):
+                nuevos = df_prendas[df_prendas['Referencia'].isin(seleccion)].copy()
+                nuevos['Cant. a fabricar'] = 0 # Empezamos en 0 para que el usuario sume
+                st.session_state.mesa = pd.concat([st.session_state.mesa, nuevos]).drop_duplicates(subset=['Ean'])
+                st.rerun()
 
     if not st.session_state.mesa.empty:
-        st.info("💡 Indica aquí cuántas unidades fabricarás de cada color y talla.")
+        st.divider()
+        st.write("### ⚡ Ajustes Masivos")
+        st.caption("Aplica cambios a todas las prendas que tienes actualmente en la mesa.")
+        
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            if st.button("➕ Añadir 1 a TODO"):
+                st.session_state.mesa['Cant. a fabricar'] += 1
+                st.rerun()
+        with c2:
+            if st.button("➕ Añadir 5 a TODO"):
+                st.session_state.mesa['Cant. a fabricar'] += 5
+                st.rerun()
+        with c3:
+            if st.button("🔄 Resetear a 0"):
+                st.session_state.mesa['Cant. a fabricar'] = 0
+                st.rerun()
+        with c4:
+            if st.button("🗑️ Vaciar Mesa"):
+                st.session_state.mesa = pd.DataFrame()
+                st.session_state.bom = pd.DataFrame()
+                st.rerun()
+
+        st.divider()
+        st.write("### 📋 Ajuste por Variante")
+        
+        # Usamos el data_editor con configuración de número para permitir +/- 
+        # y también edición directa rápida.
         df_mesa_edit = st.data_editor(
             st.session_state.mesa,
-            use_container_width=True, hide_index=True,
+            use_container_width=True,
+            hide_index=True,
             column_config={
-                "Cant. a fabricar": st.column_config.NumberColumn("Unids. a Fabricar", min_value=0, step=1, required=True),
+                "Cant. a fabricar": st.column_config.NumberColumn(
+                    "Unids. a Fabricar",
+                    help="Usa los botones o escribe el número",
+                    min_value=0,
+                    step=1, # Esto habilita los botones + y - nativos en la celda
+                    format="%d"
+                ),
                 "Referencia": st.column_config.Column(disabled=True),
                 "Nombre": st.column_config.Column(disabled=True),
                 "Color": st.column_config.Column(disabled=True),
-                "Talla": st.column_config.Column(disabled=True)
+                "Talla": st.column_config.Column(disabled=True),
+                "Ean": st.column_config.Column(disabled=True)
             }
         )
+        # Sincronizamos cambios
         st.session_state.mesa = df_mesa_edit
-        
-        if st.button("🗑️ VACIAR TODO"):
-            st.session_state.mesa = pd.DataFrame(); st.session_state.bom = pd.DataFrame(); st.rerun()
 
 # --- TAB 2: ASIGNACIÓN DE MATERIALES ---
 with tab2:
