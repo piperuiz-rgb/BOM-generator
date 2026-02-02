@@ -58,7 +58,7 @@ st.title("👗 Gextia Master Planner")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏗️ MESA: ORDEN DE FABRICACIÓN", "🧬 ASIGNACIÓN", "📋 REVISIÓN ESCANDALLO", "📊 LISTA DE LA COMPRA"])
 
-# --- TAB 1: MESA DE TRABAJO (SOLUCIÓN DEFINITIVA ACCIONES MASIVAS) ---
+# --- TAB 1: MESA DE TRABAJO (FILTROS POR TALLA + ACCIONES MASIVAS) ---
 with tab1:
     st.subheader("🏗️ Panel de Control de Producción")
     
@@ -82,34 +82,47 @@ with tab1:
     if not st.session_state.mesa.empty:
         st.divider()
         
-        # 2. SELECTORES GLOBALES Y ACCIONES MASIVAS
-        col_all, col_10, col_5, col_del = st.columns([1.5, 1, 1, 1])
+        # 2. SELECTORES GLOBALES Y FILTROS DE TALLA
+        st.write("### ⚡ Acciones Masivas e Inteligentes")
         
-        with col_all:
-            # Checkbox maestro para controlar todos
+        c_all, c_talla, c_ops = st.columns([1, 1.5, 3])
+        
+        with c_all:
             select_all = st.checkbox("Seleccionar todas", key="master_sel")
             if select_all != st.session_state.get('prev_select_all', False):
                 st.session_state.mesa['Sel'] = select_all
                 st.session_state['prev_select_all'] = select_all
                 st.rerun()
         
-        mask = st.session_state.mesa['Sel'] == True
-        
-        with col_10:
-            if st.button("➕10 Sel."):
+        with c_talla:
+            tallas_disponibles = ["Cualquier Talla"] + sorted(st.session_state.mesa['Talla'].unique().tolist())
+            talla_target = st.selectbox("🎯 Filtrar por Talla:", tallas_disponibles)
+
+        with c_ops:
+            # Lógica de máscara: Solo seleccionados Y (si aplica) solo la talla elegida
+            mask = st.session_state.mesa['Sel'] == True
+            if talla_target != "Cualquier Talla":
+                mask = mask & (st.session_state.mesa['Talla'] == talla_target)
+            
+            # Botones de acción
+            b1, b2, b3, b4 = st.columns(4)
+            
+            if b1.button("➕1"):
                 if mask.any():
-                    # Actualizamos el valor en el DataFrame
-                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 10
-                    st.success("Añadidas 10 unidades")
+                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 1
                     st.rerun()
-        with col_5:
-            if st.button("➕5 Sel."):
+            
+            if b2.button("➕5"):
                 if mask.any():
                     st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 5
-                    st.success("Añadidas 5 unidades")
                     st.rerun()
-        with col_del:
-            if st.button("🗑️ Quitar Sel."):
+            
+            if b3.button("➕10"):
+                if mask.any():
+                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 10
+                    st.rerun()
+            
+            if b4.button("🗑️ Quitar"):
                 if mask.any():
                     st.session_state.mesa = st.session_state.mesa[~mask].reset_index(drop=True)
                     st.rerun()
@@ -124,6 +137,9 @@ with tab1:
         h4.write("**Cantidad**")
 
         for idx, row in st.session_state.mesa.iterrows():
+            # Si hay una talla filtrada arriba, resaltamos o atenuamos la fila visualmente
+            is_target = (talla_target == "Cualquier Talla") or (row['Talla'] == talla_target)
+            
             f1, f2, f3, f4 = st.columns([0.5, 2, 4, 1.5])
             
             # Checkbox individual
@@ -137,16 +153,15 @@ with tab1:
                 st.session_state.mesa.at[idx, 'Sel'] = res_sel
                 st.rerun()
             
-            f2.write(f"`{row['Referencia']}`")
-            f3.write(f"**{row['Nombre']}** \n{row['Color']} / {row['Talla']}")
+            f2.write(f"`{row['Referencia']}`" if is_target else f"~~`{row['Referencia']}`~~")
+            f3.write(f"**{row['Nombre']}** \n{row['Color']} / {row['Talla']}" if is_target else f"*{row['Nombre']} ({row['Color']}/{row['Talla']})*")
             
-            # Cantidad con botones +/- nativos
-            # Importante: el value se vincula al DataFrame actualizado por los botones de arriba
+            # Cantidad con clave dinámica para refresco instantáneo
             nueva_cant = f4.number_input(
                 "Cant", 
                 min_value=0, 
                 value=int(row['Cant. a fabricar']), 
-                key=f"val_{idx}_{row['Ean']}_c{row['Cant. a fabricar']}", # Clave dinámica para refresco
+                key=f"val_{idx}_{row['Ean']}_c{row['Cant. a fabricar']}", 
                 label_visibility="collapsed",
                 step=1
             )
@@ -156,6 +171,7 @@ with tab1:
                 st.rerun()
             
             st.divider()
+
 
 
 # --- TAB 2: ASIGNACIÓN DE MATERIALES ---
