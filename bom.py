@@ -59,6 +59,7 @@ st.title("👗 Gextia Master Planner")
 tab1, tab2, tab3, tab4 = st.tabs(["🏗️ MESA: ORDEN DE FABRICACIÓN", "🧬 ASIGNACIÓN", "📋 REVISIÓN ESCANDALLO", "📊 LISTA DE LA COMPRA"])
 
 # --- TAB 1: MESA DE TRABAJO (CONTROL ULTRA-RÁPIDO) ---
+# --- TAB 1: MESA DE TRABAJO (VERSIÓN FINAL) ---
 with tab1:
     st.subheader("🏗️ Panel de Control de Producción")
     
@@ -71,6 +72,7 @@ with tab1:
         with c_btn:
             if st.button("➕ CARGAR EN MESA", type="primary", use_container_width=True):
                 nuevos = df_prendas[df_prendas['Referencia'].isin(seleccion_refs)].copy()
+                # Importante: Inicializamos 'Sel' y 'Cant. a fabricar'
                 nuevos['Sel'] = False
                 nuevos['Cant. a fabricar'] = 0
                 if not st.session_state.mesa.empty:
@@ -87,6 +89,8 @@ with tab1:
         
         with col_all:
             c_a1, c_a2 = st.columns(2)
+            # Para que el "Seleccionar todas" funcione, cambiamos el valor en el DataFrame 
+            # y usamos rerun para que los checkboxes se enteren
             if c_a1.button("✅ Todas"):
                 st.session_state.mesa['Sel'] = True
                 st.rerun()
@@ -94,59 +98,68 @@ with tab1:
                 st.session_state.mesa['Sel'] = False
                 st.rerun()
         
+        # Filtro de filas marcadas
         mask = st.session_state.mesa['Sel'] == True
         
         with col_1:
             if st.button("➕1 Sel."):
-                st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 1
-                st.rerun()
+                if mask.any():
+                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 1
+                    st.rerun()
         with col_5:
             if st.button("➕5 Sel."):
-                st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 5
-                st.rerun()
+                if mask.any():
+                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 5
+                    st.rerun()
         with col_del:
-            if st.button("🗑️ Quitar Sel.", type="secondary"):
-                st.session_state.mesa = st.session_state.mesa[~mask]
-                st.rerun()
+            if st.button("🗑️ Quitar Sel."):
+                if mask.any():
+                    st.session_state.mesa = st.session_state.mesa[~mask].reset_index(drop=True)
+                    st.rerun()
 
         st.write("---")
         
-        # 3. LISTADO DINÁMICO CON AJUSTE FINO (+/-) POR FILA
-        # Encabezados de "tabla" manual
-        h1, h2, h3, h4, h5 = st.columns([0.5, 2, 3, 2, 2.5])
+        # 3. LISTADO DE PRODUCTOS (SIN BOTONES GRANDES)
+        # Encabezados
+        h1, h2, h3, h4 = st.columns([0.5, 2, 4, 1.5])
         h1.write("**Sel**")
         h2.write("**Referencia**")
         h3.write("**Nombre / Color / Talla**")
         h4.write("**Cantidad**")
-        h5.write("**Ajuste Fino**")
 
-        # Generamos una "fila" de controles para cada variante
+        # Iteramos sobre el DataFrame
         for idx, row in st.session_state.mesa.iterrows():
-            f1, f2, f3, f4, f5 = st.columns([0.5, 2, 3, 2, 2.5])
+            f1, f2, f3, f4 = st.columns([0.5, 2, 4, 1.5])
             
-            # Checkbox de selección
-            st.session_state.mesa.at[idx, 'Sel'] = f1.checkbox(" ", value=row['Sel'], key=f"sel_{idx}", label_visibility="collapsed")
+            # Checkbox de selección (vinculado directamente al DataFrame)
+            # Usamos el índice para asegurar unicidad
+            st.session_state.mesa.at[idx, 'Sel'] = f1.checkbox(
+                " ", 
+                value=row['Sel'], 
+                key=f"ch_{idx}_{row['Ean']}", 
+                label_visibility="collapsed"
+            )
             
             f2.write(f"`{row['Referencia']}`")
-            f3.write(f"{row['Nombre']}  \n*{row['Color']} / {row['Talla']}*")
+            f3.write(f"**{row['Nombre']}** \n{row['Color']} / {row['Talla']}")
             
-            # Cantidad actual (editable manualmente también)
-            nueva_cant = f4.number_input("Cant", min_value=0, value=int(row['Cant. a fabricar']), key=f"num_{idx}", label_visibility="collapsed")
-            st.session_state.mesa.at[idx, 'Cant. a fabricar'] = nueva_cant
+            # Ajuste de cantidad (Usamos number_input que ya trae sus propios botones +/- pequeños)
+            # Esto sustituye a los botones grandes manuales y es más estable
+            nueva_cant = f4.number_input(
+                "Cant", 
+                min_value=0, 
+                value=int(row['Cant. a fabricar']), 
+                key=f"val_{idx}_{row['Ean']}", 
+                label_visibility="collapsed",
+                step=1
+            )
             
-            # BOTONES DE AJUSTE FINO A LA DERECHA
-            b_minus, b_plus = f5.columns(2)
-            if b_minus.button("➖", key=f"min_{idx}", use_container_width=True):
-                st.session_state.mesa.at[idx, 'Cant. a fabricar'] = max(0, row['Cant. a fabricar'] - 1)
+            # Solo actualizamos si el valor cambia para evitar bucles de refresco
+            if nueva_cant != row['Cant. a fabricar']:
+                st.session_state.mesa.at[idx, 'Cant. a fabricar'] = nueva_cant
                 st.rerun()
-            if b_plus.button("➕", key=f"pls_{idx}", use_container_width=True):
-                st.session_state.mesa.at[idx, 'Cant. a fabricar'] = row['Cant. a fabricar'] + 1
-                st.rerun()
             
-            st.write("---")
-
-
-
+            st.divider()
 
 
 # --- TAB 2: ASIGNACIÓN DE MATERIALES ---
