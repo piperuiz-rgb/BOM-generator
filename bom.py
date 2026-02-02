@@ -23,7 +23,6 @@ df_comp = load_data('componentes.xlsx')
 
 if 'mesa' not in st.session_state: st.session_state.mesa = pd.DataFrame()
 if 'bom' not in st.session_state: st.session_state.bom = pd.DataFrame()
-# Estado para rastrear la última tanda
 if 'ultima_tanda' not in st.session_state: st.session_state.ultima_tanda = None
 
 # --- 3. TABS ---
@@ -96,34 +95,33 @@ with t2:
         final_df = d_t2 if not t_ts else d_t2[d_t2['Talla'].isin(t_ts)]
         st.info(f"Se inyectará en **{len(final_df)}** variantes.")
         
-        col_btn1, col_btn2 = st.columns([3, 1])
-        with col_btn1:
+        col_b1, col_b2 = st.columns([3, 1])
+        with col_b1:
             if st.button("✂️ EJECUTAR INYECCIÓN Y CORTE", type="primary", use_container_width=True):
                 tanda_id = datetime.now().strftime('%H%M%S')
                 nuevas = pd.DataFrame({
                     'Nombre de producto': final_df['Nombre'], 'Cod Barras Variante': final_df['Ean'],
                     'Ref Prenda': final_df['Referencia'], 'Col Prenda': final_df['Color'], 'Tal Prenda': final_df['Talla'],
-                    'Cantidad producto final': final_df['Cant. a fabricar'], 'Ref Comp': row_c.get('Referencia',''),
-                    'Nom Comp': row_c.get('Nombre',''), 'Col Comp': row_c.get('Color',''), 'EAN Componente': row_c.get('Ean',''),
-                    'Cantidad': cons_inj, 'Ud': row_c.get('Unidad de medida','Un'), 'Tipo de lista de material': 'Fabricación', 
-                    'Subcontratista': '', 'Tanda': tanda_id
+                    'Cantidad producto final': 1, 
+                    'Ref Comp': row_c.get('Referencia',''), 'Nom Comp': row_c.get('Nombre',''),
+                    'Col Comp': row_c.get('Color',''), 'EAN Componente': row_c.get('Ean',''),
+                    'Cantidad': cons_inj, 'Ud': row_c.get('Unidad de medida','Un'),
+                    'Tipo de lista de material': 'Fabricación', 'Subcontratista': '', 'Tanda': tanda_id
                 })
                 st.session_state.bom = pd.concat([st.session_state.bom, nuevas]).drop_duplicates()
                 st.session_state.ultima_tanda = tanda_id
                 st.success("✂️ ¡Material asignado!"); st.balloons()
-        
-        with col_btn2:
+        with col_b2:
             if st.session_state.ultima_tanda and st.button("🔄 DESHACER"):
                 st.session_state.bom = st.session_state.bom[st.session_state.bom['Tanda'] != st.session_state.ultima_tanda]
                 st.session_state.ultima_tanda = None
-                st.warning("Última inyección eliminada."); st.rerun()
+                st.rerun()
 
-# --- TAB 3: IMPORT GEXTIA (CON FILTROS Y EDICIÓN) ---
+# --- TAB 3: IMPORT GEXTIA (FILTROS Y EDICIÓN) ---
 with t3:
     if not st.session_state.bom.empty:
-        st.subheader("📋 Auditoría de Escandallo")
+        st.subheader("📋 Auditoría de Escandallo (Consumo por prenda)")
         
-        # Filtros de revisión
         fr1, fr2, fr3 = st.columns(3)
         with fr1: rev_ref = st.multiselect("Filtrar por Ref:", sorted(st.session_state.bom['Ref Prenda'].unique()))
         with fr2:
@@ -133,47 +131,54 @@ with t3:
             d_rev2 = d_rev if not rev_col else d_rev[d_rev['Col Prenda'].isin(rev_col)]
             rev_tal = st.multiselect("Filtrar por Talla:", sorted(d_rev2['Tal Prenda'].unique()))
         
-        df_final_rev = d_rev2 if not rev_tal else d_rev2[d_rev2['Tal Prenda'].isin(rev_tal)]
+        df_audit = d_rev2 if not rev_tal else d_rev2[d_rev2['Tal Prenda'].isin(rev_tal)]
         
-        # Editor de datos
-        df_edit = st.data_editor(df_final_rev, use_container_width=True, hide_index=True)
+        # Columnas que queremos que el usuario vea y edite
+        cols_visibles = ['Ref Prenda', 'Col Prenda', 'Tal Prenda', 'Nom Comp', 'Col Comp', 'Cantidad', 'Ud']
         
-        # Botón para consolidar cambios
-        if st.button("💾 GUARDAR CAMBIOS EN ESCANDALLO"):
+        st.write("Puedes editar la columna **Cantidad** directamente en la tabla:")
+        df_edit = st.data_editor(
+            df_audit[cols_visibles],
+            column_config={
+                "Cantidad": st.column_config.NumberColumn("Consumo Unit.", format="%.3f"),
+                "Ref Prenda": st.column_config.Column(disabled=True),
+                "Col Prenda": st.column_config.Column(disabled=True),
+                "Tal Prenda": st.column_config.Column(disabled=True),
+                "Nom Comp": st.column_config.Column(disabled=True),
+                "Col Comp": st.column_config.Column(disabled=True),
+                "Ud": st.column_config.Column(disabled=True),
+            },
+            use_container_width=True, hide_index=True
+        )
+        
+        if st.button("💾 GUARDAR CAMBIOS"):
+            # Actualizamos el BOM global con los datos editados en la vista filtrada
             st.session_state.bom.update(df_edit)
-            st.success("Cambios aplicados correctamente.")
+            st.success("Cantidades actualizadas en el escandallo maestro.")
 
         st.divider()
-        cols_gextia = ['Nombre de producto', 'Cod Barras Variante', 'Cantidad producto final', 
-                       'Tipo de lista de material', 'Subcontratista', 'EAN Componente', 'Cantidad', 'Ud']
+        cols_g = ['Nombre de producto', 'Cod Barras Variante', 'Cantidad producto final', 
+                  'Tipo de lista de material', 'Subcontratista', 'EAN Componente', 'Cantidad', 'Ud']
         
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            st.session_state.bom[cols_gextia].to_excel(writer, index=False)
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine='openpyxl') as w:
+            st.session_state.bom[cols_g].to_excel(w, index=False)
         
-        st.download_button(
-            label="📥 DESCARGAR EXCEL PARA GEXTIA",
-            data=output.getvalue(),
-            file_name=f"Gextia_BOM_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.download_button("📥 DESCARGAR GEXTIA", out.getvalue(), f"Gextia_BOM_{datetime.now().strftime('%H%M')}.xlsx")
 
 # --- TAB 4: COMPRAS ---
 with t4:
     if not st.session_state.bom.empty:
-        st.subheader("📊 Consolidado de Necesidades")
+        st.subheader("📊 Necesidades Totales")
         df_calc = st.session_state.bom.copy()
-        df_cantidades = st.session_state.mesa[['Ean', 'Cant. a fabricar']]
-        df_calc = df_calc.drop(columns=['Cantidad producto final']).merge(df_cantidades, left_on='Cod Barras Variante', right_on='Ean', how='left')
+        df_m = st.session_state.mesa[['Ean', 'Cant. a fabricar']]
+        df_calc = df_calc.merge(df_m, left_on='Cod Barras Variante', right_on='Ean', how='left')
         df_calc['Total Compra'] = df_calc['Cantidad'].astype(float) * df_calc['Cant. a fabricar'].astype(float)
         
-        compra_final = df_calc.groupby(['Ref Comp', 'Nom Comp', 'Col Comp', 'Ud'])['Total Compra'].sum().reset_index()
-        compra_final = compra_final[compra_final['Total Compra'] > 0]
-        st.dataframe(compra_final, use_container_width=True, hide_index=True)
+        res = df_calc.groupby(['Ref Comp', 'Nom Comp', 'Col Comp', 'Ud'])['Total Compra'].sum().reset_index()
+        st.dataframe(res[res['Total Compra'] > 0], use_container_width=True, hide_index=True)
         
-        out_compra = io.BytesIO()
-        with pd.ExcelWriter(out_compra, engine='openpyxl') as writer:
-            compra_final.to_excel(writer, index=False)
-            
-        st.download_button("📥 DESCARGAR LISTA DE COMPRA", out_compra.getvalue(), f"Compra_{datetime.now().strftime('%d%m_%H%M')}.xlsx")
-                
+        out_c = io.BytesIO()
+        with pd.ExcelWriter(out_c, engine='openpyxl') as w: res.to_excel(w, index=False)
+        st.download_button("📥 DESCARGAR COMPRAS", out_c.getvalue(), "Lista_Compra.xlsx")
+        
