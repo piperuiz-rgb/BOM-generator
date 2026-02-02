@@ -33,36 +33,45 @@ df_comp = load_excel('componentes.xlsx')
 if 'mesa_trabajo' not in st.session_state: st.session_state.mesa_trabajo = pd.DataFrame()
 if 'bom_final' not in st.session_state: st.session_state.bom_final = pd.DataFrame()
 
-# --- BARRA LATERAL: GESTIÓN DE PROGRESO ---
+# --- BARRA LATERAL: GESTIÓN DE PROGRESO CORREGIDA ---
 with st.sidebar:
     st.header("💾 Copia de Seguridad")
-    st.write("Usa esto para no perder el trabajo de las 500 variantes.")
     
-    # Exportar progreso actual
+    # 1. OPCIÓN DE GUARDAR (EXPORTAR)
+    st.subheader("Guardar Trabajo")
     if not st.session_state.bom_final.empty:
-        # Convertimos a CSV para que sea un archivo de recuperación ligero
+        # Generamos el CSV en memoria
         csv_progreso = st.session_state.bom_final.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Descargar Respaldo (.csv)",
             data=csv_progreso,
             file_name=f"respaldo_BOM_{datetime.now().strftime('%d%m_%H%M')}.csv",
             mime="text/csv",
-            help="Guarda tu trabajo actual en tu ordenador."
+            help="Haz clic aquí para descargar tu progreso actual en un archivo.",
+            use_container_width=True
         )
+        st.info("💡 Haz clic arriba para guardar lo que llevas hecho hasta ahora.")
+    else:
+        st.warning("⚠️ No hay datos para guardar todavía. Inyecta algún material primero.")
     
     st.divider()
     
-    # Importar progreso guardado
-    archivo_recuperacion = st.file_uploader("📂 Cargar Respaldo", type=['csv'])
+    # 2. OPCIÓN DE RECUPERAR (IMPORTAR)
+    st.subheader("Recuperar Trabajo")
+    archivo_recuperacion = st.file_uploader("Sube tu archivo de respaldo (.csv)", type=['csv'])
     if archivo_recuperacion:
-        if st.button("Restaurar Trabajo"):
-            df_recuperado = pd.read_csv(archivo_recuperacion, dtype=str)
-            # Convertir cantidad a numérico
-            if 'Cantidad' in df_recuperado.columns:
-                df_recuperado['Cantidad'] = pd.to_numeric(df_recuperado['Cantidad'], errors='coerce')
-            st.session_state.bom_final = df_recuperado
-            st.success("✅ Trabajo restaurado correctamente.")
-            st.rerun()
+        if st.button("🔄 Restaurar Sesión Ahora", use_container_width=True):
+            try:
+                df_recuperado = pd.read_csv(archivo_recuperacion, dtype=str)
+                # Convertir cantidad a numérico para que se pueda editar
+                if 'Cantidad' in df_recuperado.columns:
+                    df_recuperado['Cantidad'] = pd.to_numeric(df_recuperado['Cantidad'], errors='coerce')
+                st.session_state.bom_final = df_recuperado
+                st.success("✅ ¡Trabajo restaurado!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error al restaurar: {e}")
+
 
 # --- CUERPO PRINCIPAL ---
 st.title("👗 Gextia BOM: Gestión Profesional")
