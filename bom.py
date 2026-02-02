@@ -33,44 +33,54 @@ df_comp = load_excel('componentes.xlsx')
 if 'mesa_trabajo' not in st.session_state: st.session_state.mesa_trabajo = pd.DataFrame()
 if 'bom_final' not in st.session_state: st.session_state.bom_final = pd.DataFrame()
 
-# --- BARRA LATERAL: GESTIÓN DE PROGRESO CORREGIDA ---
+# --- BARRA LATERAL: RESPALDO EN EXCEL (MÁS SEGURO) ---
 with st.sidebar:
     st.header("💾 Copia de Seguridad")
     
-    # 1. OPCIÓN DE GUARDAR (EXPORTAR)
+    # 1. BOTÓN PARA GUARDAR
     st.subheader("Guardar Trabajo")
     if not st.session_state.bom_final.empty:
-        # Generamos el CSV en memoria
-        csv_progreso = st.session_state.bom_final.to_csv(index=False).encode('utf-8')
+        output_backup = io.BytesIO()
+        with pd.ExcelWriter(output_backup, engine='openpyxl') as writer:
+            st.session_state.bom_final.to_excel(writer, index=False)
+        
         st.download_button(
-            label="📥 Descargar Respaldo (.csv)",
-            data=csv_progreso,
-            file_name=f"respaldo_BOM_{datetime.now().strftime('%d%m_%H%M')}.csv",
-            mime="text/csv",
-            help="Haz clic aquí para descargar tu progreso actual en un archivo.",
+            label="📥 Descargar Respaldo (.xlsx)",
+            data=output_backup.getvalue(),
+            file_name=f"respaldo_BOM_{datetime.now().strftime('%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-        st.info("💡 Haz clic arriba para guardar lo que llevas hecho hasta ahora.")
+        st.info("💡 Guarda este archivo para no perder el progreso.")
     else:
-        st.warning("⚠️ No hay datos para guardar todavía. Inyecta algún material primero.")
+        st.warning("⚠️ Inyecta materiales para poder guardar.")
     
     st.divider()
     
-    # 2. OPCIÓN DE RECUPERAR (IMPORTAR)
+    # 2. BOTÓN PARA RECUPERAR
     st.subheader("Recuperar Trabajo")
-    archivo_recuperacion = st.file_uploader("Sube tu archivo de respaldo (.csv)", type=['csv'])
+    archivo_recuperacion = st.file_uploader("Sube tu respaldo (.xlsx)", type=['xlsx'])
+    
     if archivo_recuperacion:
         if st.button("🔄 Restaurar Sesión Ahora", use_container_width=True):
             try:
-                df_recuperado = pd.read_csv(archivo_recuperacion, dtype=str)
-                # Convertir cantidad a numérico para que se pueda editar
+                # Cargamos el Excel de respaldo
+                df_recuperado = pd.read_excel(archivo_recuperacion, engine='openpyxl')
+                
+                # Aseguramos limpieza de datos como en la carga inicial
+                for col in df_recuperado.columns:
+                    df_recuperado[col] = df_recuperado[col].astype(str).apply(lambda x: x.replace('.0', '').strip())
+                    df_recuperado[col] = df_recuperado[col].replace('nan', '')
+                
+                # Convertir la columna Cantidad a número para que el editor funcione
                 if 'Cantidad' in df_recuperado.columns:
                     df_recuperado['Cantidad'] = pd.to_numeric(df_recuperado['Cantidad'], errors='coerce')
+                
                 st.session_state.bom_final = df_recuperado
-                st.success("✅ ¡Trabajo restaurado!")
+                st.success("✅ ¡Trabajo restaurado con éxito!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Error al restaurar: {e}")
+                st.error(f"No se pudo importar: {e}")
 
 
 # --- CUERPO PRINCIPAL ---
