@@ -2,11 +2,12 @@ import streamlit as st
 import pandas as pd
 import io
 import os
+from datetime import datetime # <--- Línea añadida para solucionar el error
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Gextia Factory Pro", layout="wide", page_icon="✂️")
 
-# --- 2. CARGA DE DATOS ---
+# --- 2. MOTOR DE DATOS ---
 @st.cache_data
 def load_data(file):
     if os.path.exists(file):
@@ -26,7 +27,7 @@ if 'bom' not in st.session_state: st.session_state.bom = pd.DataFrame()
 # --- 3. TABS ---
 t1, t2, t3, t4 = st.tabs(["🏗️ MESA DE CORTE", "🧬 ASIGNACIÓN", "📋 IMPORT GEXTIA", "📊 LISTA DE COMPRA"])
 
-# --- TAB 1: MESA DE CORTE (PRODUCCIÓN) ---
+# --- TAB 1: MESA DE CORTE ---
 with t1:
     st.subheader("🏗️ Planificación de Producción")
     if df_prendas is not None:
@@ -68,7 +69,7 @@ with t1:
             if nv != row['Cant. a fabricar']: st.session_state.mesa.at[idx, 'Cant. a fabricar'] = nv; st.rerun()
             st.divider()
 
-# --- TAB 2: ASIGNACIÓN (MULTIREFERENCIA) ---
+# --- TAB 2: ASIGNACIÓN ---
 with t2:
     if not st.session_state.mesa.empty:
         st.subheader("🧬 Asignación de Materiales")
@@ -103,26 +104,21 @@ with t2:
             })
             st.session_state.bom = pd.concat([st.session_state.bom, nuevas]).drop_duplicates()
             st.success("✂️ ¡Material cortado y asignado!"); st.balloons()
-    else: st.warning("Mesa vacía.")
 
-# --- TAB 3: ESCANDALLO (IMPORTACIÓN GEXTIA) ---
+# --- TAB 3: IMPORT GEXTIA ---
 with t3:
     if not st.session_state.bom.empty:
-        st.subheader("📋 Fichero de Importación de Escandallos")
-        st.write("Edita directamente si necesitas un ajuste final antes de exportar.")
+        st.subheader("📋 Fichero de Importación")
         df_edit = st.data_editor(st.session_state.bom, use_container_width=True, hide_index=True)
         st.session_state.bom = df_edit
-
-        # Formato GEXTIA
+        
         cols_gextia = ['Nombre de producto', 'Cod Barras Variante', 'Cantidad producto final', 
                        'Tipo de lista de material', 'Subcontratista', 'EAN Componente', 'Cantidad', 'Ud']
-        df_gextia = df_edit[cols_gextia].copy()
         
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_gextia.to_excel(writer, index=False, sheet_name='Lista de Materiales')
+            df_edit[cols_gextia].to_excel(writer, index=False)
         
-        st.divider()
         st.download_button(
             label="📥 DESCARGAR EXCEL PARA GEXTIA",
             data=output.getvalue(),
@@ -130,32 +126,22 @@ with t3:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-# --- TAB 4: LISTA DE LA COMPRA ---
+# --- TAB 4: COMPRAS ---
 with t4:
     if not st.session_state.bom.empty:
-        st.subheader("📊 Consolidado de Necesidades de Compra")
-        
-        # Sincronizamos con las cantidades actuales de la mesa
+        st.subheader("📊 Consolidado de Necesidades")
         df_calc = st.session_state.bom.copy()
         df_cantidades = st.session_state.mesa[['Ean', 'Cant. a fabricar']]
         df_calc = df_calc.drop(columns=['Cantidad producto final']).merge(df_cantidades, left_on='Cod Barras Variante', right_on='Ean', how='left')
-        
         df_calc['Total Compra'] = df_calc['Cantidad'].astype(float) * df_calc['Cant. a fabricar'].astype(float)
         
-        # Agrupamos por Componente
         compra_final = df_calc.groupby(['Ref Comp', 'Nom Comp', 'Col Comp', 'Ud'])['Total Compra'].sum().reset_index()
-        compra_final = compra_final[compra_final['Total Compra'] > 0] # Solo lo que tiene cantidad
-        
+        compra_final = compra_final[compra_final['Total Compra'] > 0]
         st.dataframe(compra_final, use_container_width=True, hide_index=True)
         
-        output_compra = io.BytesIO()
-        with pd.ExcelWriter(output_compra, engine='openpyxl') as writer:
-            compra_final.to_excel(writer, index=False, sheet_name='Lista de Compra')
+        out_compra = io.BytesIO()
+        with pd.ExcelWriter(out_compra, engine='openpyxl') as writer:
+            compra_final.to_excel(writer, index=False)
             
-        st.download_button(
-            label="📥 DESCARGAR LISTA DE LA COMPRA",
-            data=output_compra.getvalue(),
-            file_name=f"Lista_Compra_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+        st.download_button("📥 DESCARGAR LISTA DE COMPRA", out_compra.getvalue(), f"Compra_{datetime.now().strftime('%d%m_%H%M')}.xlsx")
         
