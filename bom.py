@@ -58,7 +58,7 @@ st.title("👗 Gextia Master Planner")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏗️ MESA: ORDEN DE FABRICACIÓN", "🧬 ASIGNACIÓN", "📋 REVISIÓN ESCANDALLO", "📊 LISTA DE LA COMPRA"])
 
-# --- TAB 1: MESA DE TRABAJO (SOLUCIÓN DEFINITIVA SELECCIÓN) ---
+# --- TAB 1: MESA DE TRABAJO (SOLUCIÓN DEFINITIVA ACCIONES MASIVAS) ---
 with tab1:
     st.subheader("🏗️ Panel de Control de Producción")
     
@@ -83,12 +83,11 @@ with tab1:
         st.divider()
         
         # 2. SELECTORES GLOBALES Y ACCIONES MASIVAS
-        col_all, col_1, col_5, col_del = st.columns([1.5, 1, 1, 1])
+        col_all, col_10, col_5, col_del = st.columns([1.5, 1, 1, 1])
         
         with col_all:
-            # Usamos un checkbox maestro para controlar todos los demás
+            # Checkbox maestro para controlar todos
             select_all = st.checkbox("Seleccionar todas", key="master_sel")
-            # Actualizamos el dataframe según el checkbox maestro
             if select_all != st.session_state.get('prev_select_all', False):
                 st.session_state.mesa['Sel'] = select_all
                 st.session_state['prev_select_all'] = select_all
@@ -96,15 +95,18 @@ with tab1:
         
         mask = st.session_state.mesa['Sel'] == True
         
-        with col_1:
-            if st.button("➕1 Sel."):
+        with col_10:
+            if st.button("➕10 Sel."):
                 if mask.any():
-                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 1
+                    # Actualizamos el valor en el DataFrame
+                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 10
+                    st.success("Añadidas 10 unidades")
                     st.rerun()
         with col_5:
             if st.button("➕5 Sel."):
                 if mask.any():
                     st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 5
+                    st.success("Añadidas 5 unidades")
                     st.rerun()
         with col_del:
             if st.button("🗑️ Quitar Sel."):
@@ -121,11 +123,10 @@ with tab1:
         h3.write("**Nombre / Color / Talla**")
         h4.write("**Cantidad**")
 
-        # Iteramos con una técnica de clave dinámica para forzar la actualización visual
         for idx, row in st.session_state.mesa.iterrows():
             f1, f2, f3, f4 = st.columns([0.5, 2, 4, 1.5])
             
-            # Checkbox individual: Si cambia, actualizamos el DF
+            # Checkbox individual
             res_sel = f1.checkbox(
                 " ", 
                 value=row['Sel'], 
@@ -139,12 +140,13 @@ with tab1:
             f2.write(f"`{row['Referencia']}`")
             f3.write(f"**{row['Nombre']}** \n{row['Color']} / {row['Talla']}")
             
-            # El number_input ya tiene sus botones +/- pequeños a la derecha
+            # Cantidad con botones +/- nativos
+            # Importante: el value se vincula al DataFrame actualizado por los botones de arriba
             nueva_cant = f4.number_input(
                 "Cant", 
                 min_value=0, 
                 value=int(row['Cant. a fabricar']), 
-                key=f"val_{idx}_{row['Ean']}", 
+                key=f"val_{idx}_{row['Ean']}_c{row['Cant. a fabricar']}", # Clave dinámica para refresco
                 label_visibility="collapsed",
                 step=1
             )
@@ -154,6 +156,7 @@ with tab1:
                 st.rerun()
             
             st.divider()
+
 
 # --- TAB 2: ASIGNACIÓN DE MATERIALES ---
 with tab2:
