@@ -174,33 +174,88 @@ with tab1:
 
 
 
-# --- TAB 2: ASIGNACIÓN DE MATERIALES ---
+# --- TAB 2: ASIGNACIÓN (CORREGIDA Y POTENTE) ---
 with tab2:
-    if not st.session_state.mesa.empty:
-        st.subheader("2. Inyección de Materiales")
+    if st.session_state.mesa.empty:
+        st.warning("⚠️ La mesa de trabajo está vacía. Añade prendas en la Pestaña 1 primero.")
+    else:
+        st.subheader("🧬 Inyección Masiva de Materiales")
+        
+        # 1. SELECCIÓN DEL COMPONENTE
         df_comp['Display'] = df_comp.apply(lambda r: f"{r.get('Referencia','')} - {r.get('Nombre','')} | {r.get('Color','')}", axis=1)
-        comp_sel = st.selectbox("Seleccione Material:", df_comp['Display'].unique())
+        comp_sel = st.selectbox("Seleccione el Material a Inyectar:", df_comp['Display'].unique())
         row_c = df_comp[df_comp['Display'] == comp_sel].iloc[0]
         
-        destinos = st.multiselect("Asignar a Referencias:", sorted(st.session_state.mesa['Referencia'].unique()))
-        c1, c2 = st.columns(2)
-        with c1: modo = st.radio("Filtro:", ["Todas", "Colores", "Tallas"])
-        with c2: consumo = st.number_input("Consumo por Prenda:", min_value=0.0, value=1.0, format="%.3f")
-
-        if st.button("🚀 INYECTAR MATERIAL", type="primary"):
-            target = st.session_state.mesa[st.session_state.mesa['Referencia'].isin(destinos)].copy()
-            # (Filtros de color/talla omitidos por brevedad pero funcionales si se añaden)
+        st.divider()
+        
+        # 2. CONFIGURACIÓN DEL FILTRO DE DESTINO
+        st.write("### 🎯 ¿A qué variantes inyectamos?")
+        
+        c1, c2, c3 = st.columns([1.5, 1.5, 1])
+        
+        with c1:
+            alcance = st.radio(
+                "Alcance de la inyección:",
+                ["Solo marcadas en Mesa", "Todas las prendas de la Mesa"],
+                help="Define si usamos el checkbox 'Sel' de la Pestaña 1 o ignoramos la selección."
+            )
+        
+        with c2:
+            modo_filtro = st.selectbox(
+                "Filtrar por característica:",
+                ["Sin filtro extra", "Por Color específico", "Por Talla específica"]
+            )
             
-            nuevas = pd.DataFrame({
-                'Nombre de producto': target.get('Nombre',''), 'Cod Barras Variante': target.get('Ean',''),
-                'Ref Prenda': target.get('Referencia',''), 'Col Prenda': target.get('Color',''), 'Tal Prenda': target.get('Talla',''),
-                'Cantidad producto final': target['Cant. a fabricar'], # TRAEMOS EL DATO DE LA PESTAÑA 1
-                'Ref Comp': row_c.get('Referencia',''), 'Nom Comp': row_c.get('Nombre',''), 'Col Comp': row_c.get('Color',''),
-                'EAN Componente': row_c.get('Ean',''), 'Cantidad': consumo, 'Ud': row_c.get('Unidad de medida','Un'),
-                'Tipo de lista de material': 'Fabricación', 'Subcontratista': ''
-            })
-            st.session_state.bom = pd.concat([st.session_state.bom, nuevas]).drop_duplicates()
-            st.success("Material vinculado a la producción.")
+            valor_filtro = None
+            if modo_filtro == "Por Color específico":
+                valor_filtro = st.selectbox("Color objetivo:", sorted(st.session_state.mesa['Color'].unique()))
+            elif modo_filtro == "Por Talla específica":
+                valor_filtro = st.selectbox("Talla objetivo:", sorted(st.session_state.mesa['Talla'].unique()))
+
+        with c3:
+            consumo_inj = st.number_input("Consumo Unitario:", min_value=0.0, value=1.0, format="%.3f", step=0.001)
+
+        # 3. EJECUCIÓN DE LA INYECCIÓN
+        if st.button("🚀 INYECTAR AHORA", type="primary", use_container_width=True):
+            # Base de datos sobre la que trabajar
+            df_work = st.session_state.mesa.copy()
+            
+            # Filtro 1: Alcance (Marcadas vs Todas)
+            if alcance == "Solo marcadas en Mesa":
+                df_work = df_work[df_work['Sel'] == True]
+            
+            # Filtro 2: Característica (Color o Talla)
+            if modo_filtro == "Por Color específico" and valor_filtro:
+                df_work = df_work[df_work['Color'] == valor_filtro]
+            elif modo_filtro == "Por Talla específica" and valor_filtro:
+                df_work = df_work[df_work['Talla'] == valor_filtro]
+            
+            if df_work.empty:
+                st.error("❌ No hay prendas que coincidan con esos filtros. Revisa la selección en la Pestaña 1.")
+            else:
+                # Crear las nuevas líneas de BOM
+                nuevas_lineas = pd.DataFrame({
+                    'Nombre de producto': df_work['Nombre'],
+                    'Cod Barras Variante': df_work['Ean'],
+                    'Ref Prenda': df_work['Referencia'],
+                    'Col Prenda': df_work['Color'],
+                    'Tal Prenda': df_work['Talla'],
+                    'Cantidad producto final': df_work['Cant. a fabricar'],
+                    'Ref Comp': row_c.get('Referencia',''),
+                    'Nom Comp': row_c.get('Nombre',''),
+                    'Col Comp': row_c.get('Color',''),
+                    'EAN Componente': row_c.get('Ean',''),
+                    'Cantidad': consumo_inj,
+                    'Ud': row_c.get('Unidad de medida','Un'),
+                    'Tipo de lista de material': 'Fabricación',
+                    'Subcontratista': ''
+                })
+                
+                # Unir al BOM final evitando duplicados exactos
+                st.session_state.bom = pd.concat([st.session_state.bom, nuevas_lineas]).drop_duplicates()
+                st.success(f"✅ ¡Inyectado con éxito! Se han generado {len(nuevas_lineas)} líneas en el escandallo.")
+                st.balloons()
+
 
 # --- TAB 3: REVISIÓN DE ESCANDALLO ---
 with tab3:
