@@ -201,4 +201,37 @@ with tab3:
             if st.button("⚠️ BORRAR TODO"):
                 st.session_state.bom_final = pd.DataFrame()
                 st.rerun()
+
+# --- PESTAÑA 4: RESUMEN DE COMPRA (AGRUPADO) ---
+with tab4: # Asegúrate de añadir "tab4" en la definición de st.tabs arriba
+    if not st.session_state.bom_final.empty:
+        st.subheader("📊 Necesidades Totales de Material")
+        st.write("Cálculo acumulado de todos los componentes para la producción actual.")
+
+        # Agrupamos por los datos del componente y sumamos la columna 'Cantidad'
+        df_comp_resumen = st.session_state.bom_final.groupby(
+            ['Ref Comp', 'Nom Comp', 'Col Comp', 'Tal Comp', 'EAN Componente', 'Ud']
+        )['Cantidad'].sum().reset_index()
+
+        # Renombramos para que sea más claro
+        df_comp_resumen = df_comp_resumen.rename(columns={'Cantidad': 'Total Necesario'})
+
+        # Mostrar tabla de resumen
+        st.dataframe(df_comp_resumen, use_container_width=True, hide_index=True)
+
+        # Botón para descargar este resumen específico
+        output_resumen = io.BytesIO()
+        with pd.ExcelWriter(output_resumen, engine='openpyxl') as writer:
+            df_comp_resumen.to_excel(writer, index=False)
+        
+        st.download_button(
+            label="📥 DESCARGAR LISTA DE COMPRA (.xlsx)",
+            data=output_resumen.getvalue(),
+            file_name=f"necesidades_material_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    else:
+        st.info("No hay materiales inyectados para generar un resumen de compra.")
+        
                 
