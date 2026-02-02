@@ -117,7 +117,7 @@ with t2:
                 st.session_state.ultima_tanda = None
                 st.rerun()
 
-# --- TAB 3: IMPORT GEXTIA (FILTROS Y EDICIÓN) ---
+# --- TAB 3: IMPORT GEXTIA (FILTROS Y EDICIÓN SEGURA) ---
 with t3:
     if not st.session_state.bom.empty:
         st.subheader("📋 Auditoría de Escandallo (Consumo por prenda)")
@@ -133,14 +133,14 @@ with t3:
         
         df_audit = d_rev2 if not rev_tal else d_rev2[d_rev2['Tal Prenda'].isin(rev_tal)]
         
-        # Columnas que queremos que el usuario vea y edite
-        cols_visibles = ['Ref Prenda', 'Col Prenda', 'Tal Prenda', 'Nom Comp', 'Col Comp', 'Cantidad', 'Ud']
-        
-        st.write("Puedes editar la columna **Cantidad** directamente en la tabla:")
+        # IMPORTANTE: Mantenemos el índice original para poder mapear los cambios
+        st.write("Puedes editar la columna **Cantidad** directamente:")
         df_edit = st.data_editor(
-            df_audit[cols_visibles],
+            df_audit,
+            column_order=['Ref Prenda', 'Col Prenda', 'Tal Prenda', 'Nom Comp', 'Col Comp', 'Cantidad', 'Ud'],
             column_config={
                 "Cantidad": st.column_config.NumberColumn("Consumo Unit.", format="%.3f"),
+                # Bloqueamos el resto para evitar errores de integridad
                 "Ref Prenda": st.column_config.Column(disabled=True),
                 "Col Prenda": st.column_config.Column(disabled=True),
                 "Tal Prenda": st.column_config.Column(disabled=True),
@@ -148,13 +148,18 @@ with t3:
                 "Col Comp": st.column_config.Column(disabled=True),
                 "Ud": st.column_config.Column(disabled=True),
             },
-            use_container_width=True, hide_index=True
+            use_container_width=True, 
+            hide_index=False # Cambiado a False internamente para asegurar el mapeo
         )
         
         if st.button("💾 GUARDAR CAMBIOS"):
-            # Actualizamos el BOM global con los datos editados en la vista filtrada
-            st.session_state.bom.update(df_edit)
-            st.success("Cantidades actualizadas en el escandallo maestro.")
+            # Lógica de guardado robusta: actualizamos fila por fila según el índice original
+            for idx in df_edit.index:
+                nueva_cant = df_edit.loc[idx, 'Cantidad']
+                st.session_state.bom.at[idx, 'Cantidad'] = nueva_cant
+            
+            st.success("✅ Cantidades actualizadas correctamente sin errores de índice.")
+            st.rerun()
 
         st.divider()
         cols_g = ['Nombre de producto', 'Cod Barras Variante', 'Cantidad producto final', 
