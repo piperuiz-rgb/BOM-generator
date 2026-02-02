@@ -7,22 +7,28 @@ from datetime import datetime
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Gextia BOM Ultra-Fast", layout="wide")
 
-# --- CARGA DE DATOS CON CACHÉ ---
+# --- CARGA DE DATOS CORREGIDA ---
 @st.cache_data
 def load_excel(file):
     if os.path.exists(file):
         try:
             df = pd.read_excel(file, engine='openpyxl')
+            # Limpiar nombres de columnas
             df.columns = [str(c).strip() for c in df.columns]
-            # Limpieza de EANs y relleno de vacíos
-            for col in ['EAN', 'Referencia', 'Nombre', 'Color', 'Talla']:
+            
+            # Limpiar datos de las columnas críticas elemento a elemento
+            columnas_criticas = ['EAN', 'Referencia', 'Nombre', 'Color', 'Talla']
+            for col in columnas_criticas:
                 if col in df.columns:
-                    df[col] = df[col].astype(str).str.replace('.0', '', regex=False).strip()
+                    # Convertimos a string, quitamos el .0 de los Excels y eliminamos espacios
+                    df[col] = df[col].astype(str).apply(lambda x: x.replace('.0', '').strip())
+                    # Si el dato era nulo, pandas lo pone como 'nan', lo limpiamos
                     df[col] = df[col].replace('nan', '')
             return df
         except Exception as e:
             st.error(f"Error cargando {file}: {e}")
     return None
+
 
 df_prendas = load_excel('prendas.xlsx')
 df_comp = load_excel('componentes.xlsx')
