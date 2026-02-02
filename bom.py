@@ -58,7 +58,7 @@ st.title("👗 Gextia Master Planner")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏗️ MESA: ORDEN DE FABRICACIÓN", "🧬 ASIGNACIÓN", "📋 REVISIÓN ESCANDALLO", "📊 LISTA DE LA COMPRA"])
 
-# --- TAB 1: MESA DE TRABAJO (COMPATIBILIDAD TOTAL) ---
+# --- TAB 1: MESA DE TRABAJO (CONTROL ULTRA-RÁPIDO) ---
 with tab1:
     st.subheader("🏗️ Panel de Control de Producción")
     
@@ -71,7 +71,6 @@ with tab1:
         with c_btn:
             if st.button("➕ CARGAR EN MESA", type="primary", use_container_width=True):
                 nuevos = df_prendas[df_prendas['Referencia'].isin(seleccion_refs)].copy()
-                # AÑADIMOS COLUMNA DE SELECCIÓN MANUAL
                 nuevos['Sel'] = False
                 nuevos['Cant. a fabricar'] = 0
                 if not st.session_state.mesa.empty:
@@ -83,63 +82,69 @@ with tab1:
     if not st.session_state.mesa.empty:
         st.divider()
         
-        # 2. BOTONES DE ACCIÓN
-        st.write("### ⚡ Acciones sobre filas marcadas")
-        c1, c2, c3, c4 = st.columns(4)
+        # 2. SELECTORES GLOBALES Y ACCIONES MASIVAS
+        col_all, col_1, col_5, col_del = st.columns([1.5, 1, 1, 1])
         
-        # 3. EL EDITOR (Con checkbox real en la primera columna)
-        # Reordenamos para que 'Sel' sea lo primero que vea el usuario
-        columnas_orden = ['Sel', 'Referencia', 'Nombre', 'Color', 'Talla', 'Cant. a fabricar']
-        df_para_editar = st.session_state.mesa[columnas_orden]
-
-        df_mesa_editada = st.data_editor(
-            df_para_editar,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Sel": st.column_config.CheckboxColumn("Selección", help="Marca para aplicar cambios masivos"),
-                "Cant. a fabricar": st.column_config.NumberColumn(
-                    "Unids. a Fabricar",
-                    min_value=0, step=1, format="%d",
-                ),
-                "Referencia": st.column_config.Column(disabled=True),
-                "Nombre": st.column_config.Column(disabled=True),
-                "Color": st.column_config.Column(disabled=True),
-                "Talla": st.column_config.Column(disabled=True)
-            }
-        )
+        with col_all:
+            c_a1, c_a2 = st.columns(2)
+            if c_a1.button("✅ Todas"):
+                st.session_state.mesa['Sel'] = True
+                st.rerun()
+            if c_a2.button("🔲 Ninguna"):
+                st.session_state.mesa['Sel'] = False
+                st.rerun()
         
-        # Guardamos el estado (importante para que el checkbox se quede marcado)
-        st.session_state.mesa = df_mesa_editada
-
-        # 4. LÓGICA DE BOTONES BASADA EN LA COLUMNA 'Sel'
         mask = st.session_state.mesa['Sel'] == True
-
-        with c1:
-            if st.button("➕ Añadir 1 (Marcadas)"):
-                if mask.any():
-                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 1
-                    st.rerun()
-                else: st.warning("Marca el checkbox de alguna fila")
         
-        with c2:
-            if st.button("➕ Añadir 5 (Marcadas)"):
-                if mask.any():
-                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 5
-                    st.rerun()
-                else: st.warning("Marca el checkbox de alguna fila")
+        with col_1:
+            if st.button("➕1 Sel."):
+                st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 1
+                st.rerun()
+        with col_5:
+            if st.button("➕5 Sel."):
+                st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 5
+                st.rerun()
+        with col_del:
+            if st.button("🗑️ Quitar Sel.", type="secondary"):
+                st.session_state.mesa = st.session_state.mesa[~mask]
+                st.rerun()
 
-        with c3:
-            if st.button("🔄 Reset (Marcadas)"):
-                if mask.any():
-                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] = 0
-                    st.rerun()
+        st.write("---")
         
-        with c4:
-            if st.button("🗑️ Quitar (Marcadas)"):
-                if mask.any():
-                    st.session_state.mesa = st.session_state.mesa[~mask]
-                    st.rerun()
+        # 3. LISTADO DINÁMICO CON AJUSTE FINO (+/-) POR FILA
+        # Encabezados de "tabla" manual
+        h1, h2, h3, h4, h5 = st.columns([0.5, 2, 3, 2, 2.5])
+        h1.write("**Sel**")
+        h2.write("**Referencia**")
+        h3.write("**Nombre / Color / Talla**")
+        h4.write("**Cantidad**")
+        h5.write("**Ajuste Fino**")
+
+        # Generamos una "fila" de controles para cada variante
+        for idx, row in st.session_state.mesa.iterrows():
+            f1, f2, f3, f4, f5 = st.columns([0.5, 2, 3, 2, 2.5])
+            
+            # Checkbox de selección
+            st.session_state.mesa.at[idx, 'Sel'] = f1.checkbox(" ", value=row['Sel'], key=f"sel_{idx}", label_visibility="collapsed")
+            
+            f2.write(f"`{row['Referencia']}`")
+            f3.write(f"{row['Nombre']}  \n*{row['Color']} / {row['Talla']}*")
+            
+            # Cantidad actual (editable manualmente también)
+            nueva_cant = f4.number_input("Cant", min_value=0, value=int(row['Cant. a fabricar']), key=f"num_{idx}", label_visibility="collapsed")
+            st.session_state.mesa.at[idx, 'Cant. a fabricar'] = nueva_cant
+            
+            # BOTONES DE AJUSTE FINO A LA DERECHA
+            b_minus, b_plus = f5.columns(2)
+            if b_minus.button("➖", key=f"min_{idx}", use_container_width=True):
+                st.session_state.mesa.at[idx, 'Cant. a fabricar'] = max(0, row['Cant. a fabricar'] - 1)
+                st.rerun()
+            if b_plus.button("➕", key=f"pls_{idx}", use_container_width=True):
+                st.session_state.mesa.at[idx, 'Cant. a fabricar'] = row['Cant. a fabricar'] + 1
+                st.rerun()
+            
+            st.write("---")
+
 
 
 
