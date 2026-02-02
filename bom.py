@@ -58,7 +58,7 @@ st.title("👗 Gextia Master Planner")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏗️ MESA: ORDEN DE FABRICACIÓN", "🧬 ASIGNACIÓN", "📋 REVISIÓN ESCANDALLO", "📊 LISTA DE LA COMPRA"])
 
-# --- TAB 1: MESA DE TRABAJO (CONTROL TOTAL) ---
+# --- TAB 1: MESA DE TRABAJO (CON SELECCIÓN REAL) ---
 with tab1:
     st.subheader("🏗️ Panel de Control de Producción")
     
@@ -71,9 +71,12 @@ with tab1:
         with c_btn:
             if st.button("➕ CARGAR EN MESA", type="primary", use_container_width=True):
                 nuevos = df_prendas[df_prendas['Referencia'].isin(seleccion_refs)].copy()
-                # Aseguramos que la columna sea numérica para que aparezcan los botones +/-
                 nuevos['Cant. a fabricar'] = 0
-                st.session_state.mesa = pd.concat([st.session_state.mesa, nuevos]).drop_duplicates(subset=['Ean'])
+                # Evitamos duplicados por EAN
+                if not st.session_state.mesa.empty:
+                    st.session_state.mesa = pd.concat([st.session_state.mesa, nuevos]).drop_duplicates(subset=['Ean'])
+                else:
+                    st.session_state.mesa = nuevos
                 st.rerun()
 
     if not st.session_state.mesa.empty:
@@ -83,68 +86,67 @@ with tab1:
         st.write("### ⚡ Acciones sobre filas seleccionadas")
         c1, c2, c3, c4 = st.columns(4)
         
-        # Estas variables capturan qué filas están marcadas en el editor
-        # Para que funcione, el editor debe estar definido ANTES de la lógica de los botones 
-        # o usar un callback, pero aquí lo haremos con el estado de sesión.
-
-        # 3. EL EDITOR CON SELECTOR Y BOTONES +/- POR FILA
-        # ACTIVAMOS: num_rows="dynamic" para borrar y column_config para el ajuste fino
+        # 3. EL EDITOR CON SELECTOR DE FILAS ACTIVADO
+        # 'selection_mode' es la clave para que aparezcan los checkboxes
         df_mesa_editada = st.data_editor(
             st.session_state.mesa,
             use_container_width=True,
             hide_index=True,
-            key="mesa_editor", # Clave para detectar selección
+            key="mesa_editor", 
             column_config={
-                # Esta columna ahora tiene botones + y - integrados al hacer clic
                 "Cant. a fabricar": st.column_config.NumberColumn(
                     "Unids. a Fabricar",
-                    help="Haz clic para usar los botones + / - o escribe la cantidad",
+                    help="Haz clic para usar los botones + / -",
                     min_value=0,
-                    max_value=10000,
-                    step=1, # Esto activa el control de unidades en cada fila
+                    step=1, 
                     format="%d",
-                    required=True,
                 ),
                 "Referencia": st.column_config.Column(disabled=True),
                 "Nombre": st.column_config.Column(disabled=True),
                 "Color": st.column_config.Column(disabled=True),
                 "Talla": st.column_config.Column(disabled=True),
                 "Ean": st.column_config.Column(disabled=True)
-            }
+            },
+            # ESTA LÍNEA ACTIVA LOS CHECKBOXES DE SELECCIÓN
+            column_order=["_selection", "Referencia", "Nombre", "Color", "Talla", "Cant. a fabricar"],
+            disabled=["Referencia", "Nombre", "Color", "Talla", "Ean"],
+            selection_mode="multi_row" 
         )
         
-        # Sincronizamos los cambios manuales/ajuste fino
+        # Sincronizamos los cambios manuales
         st.session_state.mesa = df_mesa_editada
 
-        # 4. LÓGICA DE LOS BOTONES SUPERIORES (Afectan a las filas seleccionadas con el checkbox de la izquierda)
-        # Accedemos a las filas marcadas a través del estado del widget
-        indices_seleccionados = st.session_state.get("mesa_editor", {}).get("selection", {}).get("rows", [])
+        # 4. LÓGICA DE LOS BOTONES USANDO EL ESTADO DE SELECCIÓN
+        # Accedemos a las filas marcadas a través de 'st.session_state.mesa_editor'
+        sel_info = st.session_state.get("mesa_editor", {})
+        indices_seleccionados = sel_info.get("selection", {}).get("rows", [])
 
         with c1:
-            if st.button("➕ Añadir 1 a Selección"):
+            if st.button("➕ Añadir 1 (Sel.)"):
                 if indices_seleccionados:
                     st.session_state.mesa.iloc[indices_seleccionados, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] += 1
                     st.rerun()
-                else: st.info("Selecciona filas a la izquierda")
+                else: st.warning("Selecciona filas en la tabla")
         
         with c2:
-            if st.button("➕ Añadir 5 a Selección"):
+            if st.button("➕ Añadir 5 (Sel.)"):
                 if indices_seleccionados:
                     st.session_state.mesa.iloc[indices_seleccionados, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] += 5
                     st.rerun()
-                else: st.info("Selecciona filas a la izquierda")
+                else: st.warning("Selecciona filas en la tabla")
 
         with c3:
-            if st.button("🔄 Resetear Selección"):
+            if st.button("🔄 Reset (Sel.)"):
                 if indices_seleccionados:
                     st.session_state.mesa.iloc[indices_seleccionados, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] = 0
                     st.rerun()
         
         with c4:
-            if st.button("🗑️ Quitar de Mesa"):
+            if st.button("🗑️ Quitar (Sel.)"):
                 if indices_seleccionados:
                     st.session_state.mesa = st.session_state.mesa.drop(st.session_state.mesa.index[indices_seleccionados])
                     st.rerun()
+
 
 
 # --- TAB 2: ASIGNACIÓN DE MATERIALES ---
