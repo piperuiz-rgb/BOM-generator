@@ -123,17 +123,46 @@ with tab2:
             st.session_state.bom_final = pd.concat([st.session_state.bom_final, nuevas_lineas])
             st.success(f"Añadidas {len(nuevas_lineas)} líneas.")
 
-# PESTAÑA 3: EXPORTAR
+# PESTAÑA 3: EXPORTACIÓN GEXTIA
 with tab3:
     if not st.session_state.bom_final.empty:
-        st.dataframe(st.session_state.bom_final, use_container_width=True)
-        
+        st.subheader("3. Revisión Final del Escandallo")
+        st.write("Los componentes aparecen agrupados por prenda y variante para facilitar la revisión.")
+
+        # --- LÓGICA DE ORDENACIÓN ---
+        # Ordenamos por Nombre de Producto (Prenda) y luego por EAN de la Variante (Talla/Color)
+        df_ordenado = st.session_state.bom_final.sort_values(
+            by=['Nombre de producto', 'Cod Barras Variante'], 
+            ascending=[True, True]
+        )
+
+        # Mostrar tabla ordenada
+        st.dataframe(df_ordenado, use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        # --- GENERACIÓN DE ARCHIVO EXCEL ---
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            st.session_state.bom_final.to_excel(writer, index=False)
+            # Exportamos el DataFrame ya ordenado
+            df_ordenado.to_excel(writer, index=False)
         
-        st.download_button("📥 DESCARGAR EXCEL GEXTIA", output.getvalue(), 
-                           f"import_gextia_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           use_container_width=True)
+        # Botón de descarga con nombre dinámico (Día_Hora)
+        st.download_button(
+            label="📥 DESCARGAR EXCEL PARA GEXTIA",
+            data=output.getvalue(),
+            file_name=f"IMPORT_GEXTIA_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+        # Espacio extra y botón de borrado
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        if st.button("⚠️ BORRAR TODO EL PROGRESO", help="Cuidado: esto limpiará toda la lista actual"):
+            st.session_state.bom_final = pd.DataFrame()
+            st.rerun()
+            
+    else:
+        st.info("Aún no has inyectado ningún material. Ve a la pestaña 'ASIGNACIÓN' para empezar.")
+
             
