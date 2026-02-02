@@ -58,7 +58,7 @@ st.title("👗 Gextia Master Planner")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏗️ MESA: ORDEN DE FABRICACIÓN", "🧬 ASIGNACIÓN", "📋 REVISIÓN ESCANDALLO", "📊 LISTA DE LA COMPRA"])
 
-# --- TAB 1: MESA DE TRABAJO (CON SELECCIÓN REAL) ---
+# --- TAB 1: MESA DE TRABAJO (COMPATIBILIDAD TOTAL) ---
 with tab1:
     st.subheader("🏗️ Panel de Control de Producción")
     
@@ -71,8 +71,9 @@ with tab1:
         with c_btn:
             if st.button("➕ CARGAR EN MESA", type="primary", use_container_width=True):
                 nuevos = df_prendas[df_prendas['Referencia'].isin(seleccion_refs)].copy()
+                # AÑADIMOS COLUMNA DE SELECCIÓN MANUAL
+                nuevos['Sel'] = False
                 nuevos['Cant. a fabricar'] = 0
-                # Evitamos duplicados por EAN
                 if not st.session_state.mesa.empty:
                     st.session_state.mesa = pd.concat([st.session_state.mesa, nuevos]).drop_duplicates(subset=['Ean'])
                 else:
@@ -82,70 +83,64 @@ with tab1:
     if not st.session_state.mesa.empty:
         st.divider()
         
-        # 2. BOTONES DE ACCIÓN MASIVA
-        st.write("### ⚡ Acciones sobre filas seleccionadas")
+        # 2. BOTONES DE ACCIÓN
+        st.write("### ⚡ Acciones sobre filas marcadas")
         c1, c2, c3, c4 = st.columns(4)
         
-        # 3. EL EDITOR CON SELECTOR DE FILAS ACTIVADO
-        # 'selection_mode' es la clave para que aparezcan los checkboxes
+        # 3. EL EDITOR (Con checkbox real en la primera columna)
+        # Reordenamos para que 'Sel' sea lo primero que vea el usuario
+        columnas_orden = ['Sel', 'Referencia', 'Nombre', 'Color', 'Talla', 'Cant. a fabricar']
+        df_para_editar = st.session_state.mesa[columnas_orden]
+
         df_mesa_editada = st.data_editor(
-            st.session_state.mesa,
+            df_para_editar,
             use_container_width=True,
             hide_index=True,
-            key="mesa_editor", 
             column_config={
+                "Sel": st.column_config.CheckboxColumn("Selección", help="Marca para aplicar cambios masivos"),
                 "Cant. a fabricar": st.column_config.NumberColumn(
                     "Unids. a Fabricar",
-                    help="Haz clic para usar los botones + / -",
-                    min_value=0,
-                    step=1, 
-                    format="%d",
+                    min_value=0, step=1, format="%d",
                 ),
                 "Referencia": st.column_config.Column(disabled=True),
                 "Nombre": st.column_config.Column(disabled=True),
                 "Color": st.column_config.Column(disabled=True),
-                "Talla": st.column_config.Column(disabled=True),
-                "Ean": st.column_config.Column(disabled=True)
-            },
-            # ESTA LÍNEA ACTIVA LOS CHECKBOXES DE SELECCIÓN
-            column_order=["_selection", "Referencia", "Nombre", "Color", "Talla", "Cant. a fabricar"],
-            disabled=["Referencia", "Nombre", "Color", "Talla", "Ean"],
-            selection_mode="multi_row" 
+                "Talla": st.column_config.Column(disabled=True)
+            }
         )
         
-        # Sincronizamos los cambios manuales
+        # Guardamos el estado (importante para que el checkbox se quede marcado)
         st.session_state.mesa = df_mesa_editada
 
-        # 4. LÓGICA DE LOS BOTONES USANDO EL ESTADO DE SELECCIÓN
-        # Accedemos a las filas marcadas a través de 'st.session_state.mesa_editor'
-        sel_info = st.session_state.get("mesa_editor", {})
-        indices_seleccionados = sel_info.get("selection", {}).get("rows", [])
+        # 4. LÓGICA DE BOTONES BASADA EN LA COLUMNA 'Sel'
+        mask = st.session_state.mesa['Sel'] == True
 
         with c1:
-            if st.button("➕ Añadir 1 (Sel.)"):
-                if indices_seleccionados:
-                    st.session_state.mesa.iloc[indices_seleccionados, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] += 1
+            if st.button("➕ Añadir 1 (Marcadas)"):
+                if mask.any():
+                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 1
                     st.rerun()
-                else: st.warning("Selecciona filas en la tabla")
+                else: st.warning("Marca el checkbox de alguna fila")
         
         with c2:
-            if st.button("➕ Añadir 5 (Sel.)"):
-                if indices_seleccionados:
-                    st.session_state.mesa.iloc[indices_seleccionados, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] += 5
+            if st.button("➕ Añadir 5 (Marcadas)"):
+                if mask.any():
+                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 5
                     st.rerun()
-                else: st.warning("Selecciona filas en la tabla")
+                else: st.warning("Marca el checkbox de alguna fila")
 
         with c3:
-            if st.button("🔄 Reset (Sel.)"):
-                if indices_seleccionados:
-                    st.session_state.mesa.iloc[indices_seleccionados, st.session_state.mesa.columns.get_loc('Cant. a fabricar')] = 0
+            if st.button("🔄 Reset (Marcadas)"):
+                if mask.any():
+                    st.session_state.mesa.loc[mask, 'Cant. a fabricar'] = 0
                     st.rerun()
         
         with c4:
-            if st.button("🗑️ Quitar (Sel.)"):
-                if indices_seleccionados:
-                    st.session_state.mesa = st.session_state.mesa.drop(st.session_state.mesa.index[indices_seleccionados])
+            if st.button("🗑️ Quitar (Marcadas)"):
+                if mask.any():
+                    st.session_state.mesa = st.session_state.mesa[~mask]
                     st.rerun()
+
 
 
 
