@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import os
-from datetime import datetime # <--- Línea añadida para solucionar el error
+from datetime import datetime
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Gextia Factory Pro", layout="wide", page_icon="✂️")
@@ -21,20 +21,22 @@ def load_data(file):
 df_prendas = load_data('prendas.xlsx')
 df_comp = load_data('componentes.xlsx')
 
+# Inicialización de estados
 if 'mesa' not in st.session_state: st.session_state.mesa = pd.DataFrame()
 if 'bom' not in st.session_state: st.session_state.bom = pd.DataFrame()
+if 'ultimo_id_inyeccion' not in st.session_state: st.session_state.ultimo_id_inyeccion = None
 
 # --- 3. TABS ---
-t1, t2, t3, t4 = st.tabs(["🏗️ MESA DE CORTE", "🧬 ASIGNACIÓN", "📋 IMPORT GEXTIA", "📊 LISTA DE COMPRA"])
+t1, t2, t3, t4 = st.tabs(["🏗️ MESA DE CORTE", "🧬 ASIGNACIÓN", "📋 AUDITORÍA GEXTIA", "📊 COMPRAS"])
 
 # --- TAB 1: MESA DE CORTE ---
 with t1:
     st.subheader("🏗️ Planificación de Producción")
     if df_prendas is not None:
         c_sel, c_btn = st.columns([3, 1])
-        with c_sel: seleccion_refs = st.multiselect("Añadir Referencias:", sorted(df_prendas['Referencia'].unique()))
+        with c_sel: seleccion_refs = st.multiselect("Añadir Referencias:", sorted(df_prendas['Ref'].unique() if 'Ref' in df_prendas.columns else df_prendas['Referencia'].unique()))
         with c_btn:
-            if st.button("➕ CARGAR", type="primary"):
+            if st.button("➕ CARGAR EN MESA", type="primary"):
                 nuevos = df_prendas[df_prendas['Referencia'].isin(seleccion_refs)].copy()
                 nuevos['Sel'], nuevos['Cant. a fabricar'] = False, 0
                 st.session_state.mesa = pd.concat([st.session_state.mesa, nuevos]).drop_duplicates(subset=['Ean'])
@@ -54,94 +56,122 @@ with t1:
             mask = st.session_state.mesa['Sel'] == True
             if t_target != "Todas": mask = mask & (st.session_state.mesa['Talla'] == t_target)
             b2, b3, b4 = st.columns(3)
-            if b2.button("➕5 Sel."): st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 5; st.rerun()
-            if b3.button("➕10 Sel."): st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 10; st.rerun()
-            if b4.button("🗑️ Quitar Sel."): st.session_state.mesa = st.session_state.mesa[~mask].reset_index(drop=True); st.rerun()
+            if b2.button("➕5"): st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 5; st.rerun()
+            if b3.button("➕10"): st.session_state.mesa.loc[mask, 'Cant. a fabricar'] += 10; st.rerun()
+            if b4.button("🗑️ Quitar"): st.session_state.mesa = st.session_state.mesa[~mask].reset_index(drop=True); st.rerun()
 
-        st.divider()
         for idx, row in st.session_state.mesa.iterrows():
             f1, f2, f3, f4 = st.columns([0.5, 2, 4, 1.5])
-            if f1.checkbox(" ", value=row['Sel'], key=f"ch_{idx}_{row['Ean']}_v{st.session_state.get('p_sel', False)}", label_visibility="collapsed") != row['Sel']:
+            if f1.checkbox(" ", value=row['Sel'], key=f"ch_{idx}_{row['Ean']}", label_visibility="collapsed") != row['Sel']:
                 st.session_state.mesa.at[idx, 'Sel'] = not row['Sel']; st.rerun()
             f2.write(f"`{row['Referencia']}`")
             f3.write(f"**{row['Nombre']}** ({row['Color']} / {row['Talla']})")
-            nv = f4.number_input("n", min_value=0, value=int(row['Cant. a fabricar']), key=f"v_{idx}_{row['Ean']}_c{row['Cant. a fabricar']}", label_visibility="collapsed", step=1)
+            nv = f4.number_input("n", min_value=0, value=int(row['Cant. a fabricar']), key=f"v_{idx}_{row['Ean']}", label_visibility="collapsed")
             if nv != row['Cant. a fabricar']: st.session_state.mesa.at[idx, 'Cant. a fabricar'] = nv; st.rerun()
-            st.divider()
 
 # --- TAB 2: ASIGNACIÓN ---
 with t2:
     if not st.session_state.mesa.empty:
-        st.subheader("🧬 Asignación de Materiales")
+        st.subheader("🧬 Inyección de Materiales")
         df_comp['Display'] = df_comp.apply(lambda r: f"{r.get('Referencia','')} - {r.get('Nombre','')} | {r.get('Color','')}", axis=1)
-        c_m, c_c = st.columns([3, 1])
-        with c_m: 
-            comp_sel = st.selectbox("Material:", df_comp['Display'].unique())
-            row_c = df_comp[df_comp['Display'] == comp_sel].iloc[0]
-        with c_c: 
-            cons_inj = st.number_input("Consumo Unit.:", min_value=0.0, value=1.0, format="%.3f")
         
-        st.write("### 🎯 Definir Destinos")
+        c_m, c_c = st.columns([3, 1])
+        with c_m: comp_sel = st.selectbox("Material:", df_comp['Display'].unique()); row_c = df_comp[df_comp['Display'] == comp_sel].iloc[0]
+        with c_c: cons_inj = st.number_input("Consumo:", min_value=0.0, value=1.0, format="%.3f")
+        
         f1, f2, f3 = st.columns(3)
-        with f1: r_ts = st.multiselect("Filtrar Ref:", sorted(st.session_state.mesa['Referencia'].unique()))
+        with f1: r_ts = st.multiselect("Ref Prenda:", sorted(st.session_state.mesa['Referencia'].unique()))
         with f2:
             d_t = st.session_state.mesa if not r_ts else st.session_state.mesa[st.session_state.mesa['Referencia'].isin(r_ts)]
-            c_ts = st.multiselect("Filtrar Color:", sorted(d_t['Color'].unique()))
+            c_ts = st.multiselect("Color Prenda:", sorted(d_t['Color'].unique()))
         with f3:
             d_t2 = d_t if not c_ts else d_t[d_t['Color'].isin(c_ts)]
-            t_ts = st.multiselect("Filtrar Talla:", sorted(d_t2['Talla'].unique()))
+            t_ts = st.multiselect("Talla Prenda:", sorted(d_t2['Talla'].unique()))
             
         final_df = d_t2 if not t_ts else d_t2[d_t2['Talla'].isin(t_ts)]
-        st.info(f"Se inyectará en **{len(final_df)}** variantes.")
+        st.info(f"Se inyectará en {len(final_df)} variantes.")
         
-        if st.button("✂️ EJECUTAR INYECCIÓN Y CORTE", type="primary", use_container_width=True):
-            nuevas = pd.DataFrame({
-                'Nombre de producto': final_df['Nombre'], 'Cod Barras Variante': final_df['Ean'],
-                'Ref Prenda': final_df['Referencia'], 'Col Prenda': final_df['Color'], 'Tal Prenda': final_df['Talla'],
-                'Cantidad producto final': final_df['Cant. a fabricar'], 'Ref Comp': row_c.get('Referencia',''),
-                'Nom Comp': row_c.get('Nombre',''), 'Col Comp': row_c.get('Color',''), 'EAN Componente': row_c.get('Ean',''),
-                'Cantidad': cons_inj, 'Ud': row_c.get('Unidad de medida','Un'), 'Tipo de lista de material': 'Fabricación', 'Subcontratista': ''
-            })
-            st.session_state.bom = pd.concat([st.session_state.bom, nuevas]).drop_duplicates()
-            st.success("✂️ ¡Material cortado y asignado!"); st.balloons()
+        c_btn1, c_btn2 = st.columns([2, 1])
+        with c_btn1:
+            if st.button("✂️ EJECUTAR INYECCIÓN MASIVA", type="primary", use_container_width=True):
+                # Generamos un ID único para esta tanda para poder deshacerla
+                tanda_id = datetime.now().strftime('%H%M%S')
+                nuevas = pd.DataFrame({
+                    'Nombre de producto': final_df['Nombre'], 'Cod Barras Variante': final_df['Ean'],
+                    'Ref Prenda': final_df['Referencia'], 'Col Prenda': final_df['Color'], 'Tal Prenda': final_df['Talla'],
+                    'Cantidad producto final': final_df['Cant. a fabricar'], 'Ref Comp': row_c.get('Referencia',''),
+                    'Nom Comp': row_c.get('Nombre',''), 'Col Comp': row_c.get('Color',''), 'EAN Componente': row_c.get('Ean',''),
+                    'Cantidad': cons_inj, 'Ud': row_c.get('Unidad de medida','Un'), 'Tipo de lista de material': 'Fabricación',
+                    'ID_Tanda': tanda_id # Marcador interno
+                })
+                st.session_state.bom = pd.concat([st.session_state.bom, nuevas]).drop_duplicates()
+                st.session_state.ultimo_id_inyeccion = tanda_id
+                st.success(f"Inyectado correctamente."); st.balloons()
+        
+        with c_btn2:
+            if st.session_state.ultimo_id_inyeccion:
+                if st.button("🔄 DESHACER ÚLTIMA"):
+                    st.session_state.bom = st.session_state.bom[st.session_state.bom['ID_Tanda'] != st.session_state.ultimo_id_inyeccion]
+                    st.session_state.ultimo_id_inyeccion = None
+                    st.warning("Última inyección eliminada."); st.rerun()
 
-# --- TAB 3: IMPORT GEXTIA ---
+# --- TAB 3: AUDITORÍA GEXTIA (FILTROS CRUZADOS) ---
 with t3:
     if not st.session_state.bom.empty:
-        st.subheader("📋 Fichero de Importación")
-        df_edit = st.data_editor(st.session_state.bom, use_container_width=True, hide_index=True)
-        st.session_state.bom = df_edit
+        st.subheader("📋 Revisión de Escandallo por Filtros")
         
-        cols_gextia = ['Nombre de producto', 'Cod Barras Variante', 'Cantidad producto final', 
-                       'Tipo de lista de material', 'Subcontratista', 'EAN Componente', 'Cantidad', 'Ud']
+        # Filtros de revisión
+        fr1, fr2, fr3 = st.columns(3)
+        with fr1: f_ref = st.multiselect("Revisar Ref:", sorted(st.session_state.bom['Ref Prenda'].unique()))
+        with fr2: 
+            temp_bom = st.session_state.bom if not f_ref else st.session_state.bom[st.session_state.bom['Ref Prenda'].isin(f_ref)]
+            f_col = st.multiselect("Revisar Color:", sorted(temp_bom['Col Prenda'].unique()))
+        with fr3:
+            temp_bom2 = temp_bom if not f_col else temp_bom[temp_bom['Col Prenda'].isin(f_col)]
+            f_tal = st.multiselect("Revisar Talla:", sorted(temp_bom2['Tal Prenda'].unique()))
         
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_edit[cols_gextia].to_excel(writer, index=False)
+        df_audit = temp_bom2 if not f_tal else temp_bom2[temp_bom2['Tal Prenda'].isin(f_tal)]
         
-        st.download_button(
-            label="📥 DESCARGAR EXCEL PARA GEXTIA",
-            data=output.getvalue(),
-            file_name=f"Gextia_BOM_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        st.write(f"Mostrando **{len(df_audit)}** líneas de escandallo:")
+        
+        # Editor de datos para corregir CANTIDADES o COMPONENTES directamente
+        df_corregido = st.data_editor(
+            df_audit, 
+            column_order=['Ref Prenda', 'Col Prenda', 'Tal Prenda', 'Nom Comp', 'Col Comp', 'Cantidad', 'Ud', 'Cantidad producto final'],
+            use_container_width=True, 
+            hide_index=True
         )
+        
+        # Guardar cambios del editor en el estado global
+        if st.button("💾 GUARDAR CAMBIOS EN ESCANDALLO"):
+            # Actualizamos las filas editadas en el dataframe original
+            st.session_state.bom.update(df_corregido)
+            st.success("Cambios guardados localmente.")
+
+        st.divider()
+        # Exportación GEXTIA (Columnas exactas)
+        cols_g = ['Nombre de producto', 'Cod Barras Variante', 'Cantidad producto final', 'Tipo de lista de material', 'Subcontratista', 'EAN Componente', 'Cantidad', 'Ud']
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine='openpyxl') as w:
+            st.session_state.bom[cols_g].to_excel(w, index=False)
+        st.download_button("📥 DESCARGAR PARA GEXTIA", out.getvalue(), f"Gextia_BOM_{datetime.now().strftime('%d%m_%H%M')}.xlsx")
+    else:
+        st.info("No hay materiales asignados aún.")
 
 # --- TAB 4: COMPRAS ---
 with t4:
     if not st.session_state.bom.empty:
-        st.subheader("📊 Consolidado de Necesidades")
+        st.subheader("📊 Lista de la Compra Consolidada")
         df_calc = st.session_state.bom.copy()
-        df_cantidades = st.session_state.mesa[['Ean', 'Cant. a fabricar']]
-        df_calc = df_calc.drop(columns=['Cantidad producto final']).merge(df_cantidades, left_on='Cod Barras Variante', right_on='Ean', how='left')
-        df_calc['Total Compra'] = df_calc['Cantidad'].astype(float) * df_calc['Cant. a fabricar'].astype(float)
+        # Actualizar con cantidades frescas de la mesa
+        df_m = st.session_state.mesa[['Ean', 'Cant. a fabricar']]
+        df_calc = df_calc.drop(columns=['Cantidad producto final']).merge(df_m, left_on='Cod Barras Variante', right_on='Ean', how='left')
+        df_calc['Total'] = df_calc['Cantidad'].astype(float) * df_calc['Cant. a fabricar'].astype(float)
         
-        compra_final = df_calc.groupby(['Ref Comp', 'Nom Comp', 'Col Comp', 'Ud'])['Total Compra'].sum().reset_index()
-        compra_final = compra_final[compra_final['Total Compra'] > 0]
-        st.dataframe(compra_final, use_container_width=True, hide_index=True)
+        res = df_calc.groupby(['Ref Comp', 'Nom Comp', 'Col Comp', 'Ud'])['Total'].sum().reset_index()
+        st.dataframe(res[res['Total']>0], use_container_width=True, hide_index=True)
         
-        out_compra = io.BytesIO()
-        with pd.ExcelWriter(out_compra, engine='openpyxl') as writer:
-            compra_final.to_excel(writer, index=False)
-            
-        st.download_button("📥 DESCARGAR LISTA DE COMPRA", out_compra.getvalue(), f"Compra_{datetime.now().strftime('%d%m_%H%M')}.xlsx")
-        
+        out_c = io.BytesIO()
+        with pd.ExcelWriter(out_c, engine='openpyxl') as w: res.to_excel(w, index=False)
+        st.download_button("📥 DESCARGAR LISTA COMPRA", out_c.getvalue(), "Compra_Materiales.xlsx")
+                                                                                  
